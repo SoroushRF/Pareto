@@ -27,65 +27,119 @@ app.add_middleware(
 
 def calculate_strategic_plan(data, target_grade):
     """
-    Calculates strategy based on the 3-State Logic (Mandatory, Transferable, Optional).
+    Calculates strategy distinguishing between Internal Drops (Freebies) and External Transfers.
     """
     total_points = data.get('total_points', 100)
     assignments = data.get('assignments', [])
     
-    # 1. Calculate Slack Budget (Points we can afford to burn)
+    # 1. Calculate Slack Budget
     slack_budget = total_points * (1 - (target_grade / 100.0))
     current_slack_used = 0
     
     skipped_items = []
     must_do_items = []
     
-    # 2. Filter lists based on the new 'category' field
-    strictly_mandatory = [a for a in assignments if a.get('category') == 'strictly_mandatory']
-    transferable = [a for a in assignments if a.get('category') == 'transferable']
-    optional = [a for a in assignments if a.get('category') == 'optional']
-    
-    # 3. Sort optional by weight (smallest first)
-    # We burn small items first to clear the board.
-    optional.sort(key=lambda x: x['weight'])
-    
-    # 4. Phase 1: Skip "Optional" items (These consume the Slack Budget)
-    for item in optional:
+    # 2. Logic Loop
+    for item in assignments:
+        category = item.get('type', 'optional') # strictly_mandatory, external_transfer, internal_drop, optional
+        weight = item.get('weight', 0)
+        name = item.get('name', 'Unknown')
+        evidence = item.get('evidence', '')
+        details = item.get('details', {})
+
+        # CASE A: Internal Drop (The "Best X of Y" Scenario) - e.g., Labs
+        # These are "Free Skips" that DO NOT consume your grade slack.
+        if category == 'internal_drop':
+            drop_count = details.get('drop_count', 0)
+            total_items = details.get('total_sub_items', 0)
+            
+            if drop_count > 0:
+                # Generate "Virtual" Skippable items for the free drops
+                for i in range(int(drop_count)):
+                    skipped_items.append({
+                        'name': f"{name} - Skip #{i+1}",
+                        'status': 'Free Skip',
+                        'message': f"Allowed by policy: {evidence}",
+                        'weight': 0 # Doesn't cost points
+                    })
+                
+                # The REST of this component is effectively Mandatory (or Optional)
+                # For safety, we list the "Core" component as Must Do, since you can't skip ALL of them.
+                must_do_items.append({
+                    'name': f"{name} (Core Required)",
+                    'status': 'Must Do',
+                    'message': f"You can skip {drop_count}, but must do the rest.",
+                    'weight': weight
+                })
+            continue
+
+        # CASE B: External Transfer (e.g., Midterm -> Final)
+        # This shifts risk, doesn't burn slack.
+        if category == 'external_transfer':
+            target = details.get('transfer_target', 'Final Exam')
+            # Heuristic: Only recommend transfer if the component is < 25%
+            if weight < 25:
+                skipped_items.append({
+                    'name': name,
+                    'status': 'Transferable',
+                    'message': f"Weight moves to {target}. ({evidence})",
+                    'weight': 0 # Points preserved, just moved
+                })
+            else:
+                must_do_items.append({
+                    'name': name,
+                    'status': 'High Risk Transfer',
+                    'message': f"Technically transferable to {target}, but risky ({weight}%).",
+                    'weight': weight
+                })
+            continue
+
+        # CASE C: Strictly Mandatory (Safety Labs, Etc)
+        if category == 'strictly_mandatory':
+            must_do_items.append({
+                'name': name,
+                'status': 'Critical',
+                'message': "Explicit failure condition in syllabus.",
+                'weight': weight
+            })
+            continue
+
+        # CASE D: Optional (Standard Stuff) - This uses the Slack Budget
+        # We process these in a second pass after identifying them, 
+        # but for simplicity in this loop structure, let's bucket them now 
+        # and sort/decide later.
+        # We'll use a temp list for standard optional items.
+        pass
+
+    # 3. Process "Optional" items (The Knapsack Problem)
+    # We filter the original list again just for 'optional' types to sort them properly
+    optional_candidates = [a for a in assignments if a.get('type') == 'optional']
+    optional_candidates.sort(key=lambda x: x['weight'])
+
+    for item in optional_candidates:
         weight = item['weight']
         if current_slack_used + weight <= slack_budget:
             current_slack_used += weight
-            item['status'] = 'Skipped (Lost Points)'
-            item['message'] = f"Skipping costs {weight}%, but you're still safe."
-            skipped_items.append(item)
+            skipped_items.append({
+                'name': item['name'],
+                'status': 'Skipped',
+                'message': f"Burned {weight}% of slack budget.",
+                'weight': weight
+            })
         else:
-            item['status'] = 'Must Do'
-            item['message'] = "Skipping this would drop you below target."
-            must_do_items.append(item)
+            must_do_items.append({
+                'name': item['name'],
+                'status': 'Must Do',
+                'message': "Not enough slack budget left.",
+                'weight': weight
+            })
 
-    # 5. Phase 2: Handle "Transferable" items
-    # These DON'T use the budget, but they are high risk.
-    for item in transferable:
-        weight = item['weight']
-        logic = item.get('transfer_logic', 'Weight transfers to another item.')
-        
-        # Heuristic: If it's huge (>25%), don't recommend skipping it via transfer (too risky).
-        if weight < 25:
-             item['status'] = 'Skipped (Transferred)'
-             item['message'] = f"Strategy: {logic}. Prepare to grind later."
-             skipped_items.append(item)
-        else:
-             item['status'] = 'Must Do (High Risk)'
-             item['message'] = f"Too risky to rely on transfer: {logic}"
-             must_do_items.append(item)
+    summary = f"Strategy generated. Used {round(current_slack_used, 1)}% of your {round(slack_budget, 1)}% loss budget."
 
-    # 6. Phase 3: Mandatory
-    for item in strictly_mandatory:
-        item['status'] = 'Critical'
-        item['message'] = f"Syllabus Policy: {item.get('evidence', 'Must Submit')}"
-        must_do_items.append(item)
-
-    summary = f"You can skip {len(skipped_items)} assignments. {round(current_slack_used, 1)}% points burned."
-    
     return {
+        "total_points": total_points,
+        "assignments": assignments,
+        "policies": data.get('policies', []),
         "target_grade": target_grade,
         "slack_budget": round(slack_budget, 1),
         "slack_used": round(current_slack_used, 1),
@@ -93,6 +147,7 @@ def calculate_strategic_plan(data, target_grade):
         "safe_to_skip": skipped_items,
         "summary": summary
     }
+    
 @app.get("/")
 def read_root():
     return {"status": "Pareto Backend Online"}
@@ -113,39 +168,50 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
         
         # System prompt - Pure Extraction
         prompt = """
-You are a ruthless academic strategist. Your goal is to identify the MINIMUM path to passing. 
-Analyze this syllabus PDF. Classify every single assignment.
+            You are an expert academic advisor helping a student optimize their semester strategy.
+            Your goal is to read the syllabus and find every "loophole", "drop rule", or "weight transfer" policy.
 
-Return ONLY valid JSON.
+            Analyze the grading scheme naturally. Don't just look for keywords; understand the MECHANISM of how grades are calculated.
 
-JSON STRUCTURE:
-{
-  "assignments": [
-    {
-      "name": string,
-      "weight": number,
-      "category": "strictly_mandatory" OR "transferable" OR "optional",
-      "transfer_logic": string (e.g., "Weight moves to Final Exam" or null),
-      "evidence": string (Direct quote proving the status)
-    }
-  ]
-}
+            Return ONLY valid JSON.
 
-CRITICAL DEFINITIONS:
-1. "strictly_mandatory": ASSIGN THIS ONLY IF THE SYLLABUS EXPLICITLY STATES FAILURE CONSEQUENCES. 
-   - Examples: "Failure to attend lab results in F", "Must pass final to pass course".
-   - Do NOT mark an assignment as mandatory just because it is worth a lot of points. 
-   - Do NOT mark it mandatory just because the professor says "attendance is important". 
-   - If I can get a 0% on it and NOT automatically fail the COURSE, it is NOT strictly_mandatory.
+            JSON STRUCTURE:
+            {
+            "total_points": number (usually 100),
+            "assignments": [
+                {
+                "name": string,
+                "weight": number,
+                "type": "string", // ENUM: see definitions below
+                "details": {
+                    "drop_count": number (e.g., 2, if "lowest 2 dropped"),
+                    "total_sub_items": number (e.g., 11, if "11 labs total"),
+                    "transfer_target": string (e.g., "Final Exam", only for external transfers)
+                },
+                "evidence": string (Quote the text that explains this rule)
+                }
+            ],
+            "policies": [ string ]
+            }
 
-2. "transferable": Assignments where the weight shifts if missed.
-   - Examples: "If midterm is missed, Final counts for 100%", "Best 5 out of 6 quizzes".
+            DEFINITIONS FOR "TYPE":
 
-3. "optional": EVERYTHING ELSE. 
-   - If I skip it, I get a 0. That is the only consequence.
-   - Most Homework, Quizzes, and even Midterms (if no transfer rule exists) are Optional.
-"""
+            1. "internal_drop": (The "Best X of Y" Rule)
+            - Use this when a component is made of multiple small parts, and the lowest N are dropped.
+            - Example: "Best 9 of 11 labs count", "Lowest quiz dropped".
+            - This is NOT a transfer to the Final. It is an internal forgiveness policy.
 
+            2. "external_transfer": (The "Shift" Rule)
+            - Use this when missing an assignment moves its weight to a DIFFERENT assignment.
+            - Example: "If Midterm is missed, weight is added to Final Exam".
+
+            3. "strictly_mandatory": (The "Fail" Rule)
+            - Use this ONLY if the syllabus explicitly says failure to complete results in failing the course.
+            - "Attendance required" usually just means lost points (optional), NOT mandatory failure, unless explicitly stated "Automatic F".
+
+            4. "optional": (The "Zero" Rule)
+            - Standard assignments. If missed, you get a 0. No other magic happens.
+            """
         print("Generating content...")
         response = model.generate_content([prompt, uploaded_file])
         
