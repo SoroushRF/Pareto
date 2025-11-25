@@ -147,7 +147,7 @@ def calculate_strategic_plan(data, target_grade):
         "safe_to_skip": skipped_items,
         "summary": summary
     }
-    
+
 @app.get("/")
 def read_root():
     return {"status": "Pareto Backend Online"}
@@ -161,7 +161,7 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
             shutil.copyfileobj(file.file, buffer)
 
         # Upload to Gemini
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         
         print(f"Uploading {temp_filename} to Gemini...")
         uploaded_file = genai.upload_file(temp_filename)
