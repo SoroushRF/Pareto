@@ -27,75 +27,72 @@ app.add_middleware(
 
 def calculate_strategic_plan(data, target_grade):
     """
-    Calculates the optimal strategy to achieve the target grade with minimum effort.
+    Calculates strategy based on the 3-State Logic (Mandatory, Transferable, Optional).
     """
     total_points = data.get('total_points', 100)
     assignments = data.get('assignments', [])
     
-    # Calculate slack budget (points we can lose)
-    # Assuming total_points is 100 for percentage based, or scaling accordingly
-    # If total_points is not 100, we need to normalize or adjust target
-    # For simplicity, assuming weights sum to 100 or total_points is the reference
-    
+    # 1. Calculate Slack Budget (Points we can afford to burn)
     slack_budget = total_points * (1 - (target_grade / 100.0))
     current_slack_used = 0
     
     skipped_items = []
     must_do_items = []
     
-    # Separate mandatory and optional
-    mandatory = []
-    optional = []
+    # 2. Filter lists based on the new 'category' field
+    strictly_mandatory = [a for a in assignments if a.get('category') == 'strictly_mandatory']
+    transferable = [a for a in assignments if a.get('category') == 'transferable']
+    optional = [a for a in assignments if a.get('category') == 'optional']
     
-    for item in assignments:
-        if item.get('mandatory', False):
-            mandatory.append(item)
-        else:
-            optional.append(item)
-            
-    # Sort optional by weight (smallest first) to maximize number of skipped items
-    # OR sort by weight (largest first) to maximize "effort" saved per item?
-    # Usually "minimum effort" means skipping the biggest chunks of work possible?
-    # But the prompt said "Sort non-mandatory items by weight (Smallest to Largest)" 
-    # Wait, if I want to skip the MOST items, I skip small ones.
-    # If I want to skip the MOST WORK (assuming weight ~ effort), I should skip large ones.
-    # The user prompt said: "Sort non-mandatory items by weight (Smallest to Largest)."
-    # Let's follow the user's instruction, although skipping small items first maximizes the COUNT of skipped items.
-    
+    # 3. Sort optional by weight (smallest first)
+    # We burn small items first to clear the board.
     optional.sort(key=lambda x: x['weight'])
     
-    # "Spend" the slack budget
+    # 4. Phase 1: Skip "Optional" items (These consume the Slack Budget)
     for item in optional:
         weight = item['weight']
         if current_slack_used + weight <= slack_budget:
             current_slack_used += weight
-            skipped_items.append({
-                'name': item['name'],
-                'reason': f"Weight {weight}% is within slack budget."
-            })
+            item['status'] = 'Skipped (Lost Points)'
+            item['message'] = f"Skipping costs {weight}%, but you're still safe."
+            skipped_items.append(item)
         else:
-            must_do_items.append({
-                'name': item['name'],
-                'reason': "Skipping this would drop grade below target."
-            })
-            
-    # Add all mandatory to must_do
-    for item in mandatory:
-        must_do_items.append({
-            'name': item['name'],
-            'reason': "Mandatory assignment."
-        })
+            item['status'] = 'Must Do'
+            item['message'] = "Skipping this would drop you below target."
+            must_do_items.append(item)
+
+    # 5. Phase 2: Handle "Transferable" items
+    # These DON'T use the budget, but they are high risk.
+    for item in transferable:
+        weight = item['weight']
+        logic = item.get('transfer_logic', 'Weight transfers to another item.')
         
-    summary = f"You can skip {len(skipped_items)} assignments and still get {target_grade}%."
+        # Heuristic: If it's huge (>25%), don't recommend skipping it via transfer (too risky).
+        if weight < 25:
+             item['status'] = 'Skipped (Transferred)'
+             item['message'] = f"Strategy: {logic}. Prepare to grind later."
+             skipped_items.append(item)
+        else:
+             item['status'] = 'Must Do (High Risk)'
+             item['message'] = f"Too risky to rely on transfer: {logic}"
+             must_do_items.append(item)
+
+    # 6. Phase 3: Mandatory
+    for item in strictly_mandatory:
+        item['status'] = 'Critical'
+        item['message'] = f"Syllabus Policy: {item.get('evidence', 'Must Submit')}"
+        must_do_items.append(item)
+
+    summary = f"You can skip {len(skipped_items)} assignments. {round(current_slack_used, 1)}% points burned."
     
     return {
         "target_grade": target_grade,
         "slack_budget": round(slack_budget, 1),
+        "slack_used": round(current_slack_used, 1),
         "must_do": must_do_items,
         "safe_to_skip": skipped_items,
         "summary": summary
     }
-
 @app.get("/")
 def read_root():
     return {"status": "Pareto Backend Online"}
@@ -115,17 +112,39 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
         uploaded_file = genai.upload_file(temp_filename)
         
         # System prompt - Pure Extraction
-        prompt = """Analyze this syllabus. Extract the grading schema. Return ONLY valid JSON.
-   Structure:
-   {
-     'total_points': number (if not stated, assume 100),
-     'assignments': [
-       {'name': string, 'weight': number, 'mandatory': boolean}
-     ],
-     'policies': [
-       {'rule': string, 'type': 'drop_lowest' OR 'penalty' OR 'other'}
-     ]
-   }"""
+        prompt = """
+You are a ruthless academic strategist. Your goal is to identify the MINIMUM path to passing. 
+Analyze this syllabus PDF. Classify every single assignment.
+
+Return ONLY valid JSON.
+
+JSON STRUCTURE:
+{
+  "assignments": [
+    {
+      "name": string,
+      "weight": number,
+      "category": "strictly_mandatory" OR "transferable" OR "optional",
+      "transfer_logic": string (e.g., "Weight moves to Final Exam" or null),
+      "evidence": string (Direct quote proving the status)
+    }
+  ]
+}
+
+CRITICAL DEFINITIONS:
+1. "strictly_mandatory": ASSIGN THIS ONLY IF THE SYLLABUS EXPLICITLY STATES FAILURE CONSEQUENCES. 
+   - Examples: "Failure to attend lab results in F", "Must pass final to pass course".
+   - Do NOT mark an assignment as mandatory just because it is worth a lot of points. 
+   - Do NOT mark it mandatory just because the professor says "attendance is important". 
+   - If I can get a 0% on it and NOT automatically fail the COURSE, it is NOT strictly_mandatory.
+
+2. "transferable": Assignments where the weight shifts if missed.
+   - Examples: "If midterm is missed, Final counts for 100%", "Best 5 out of 6 quizzes".
+
+3. "optional": EVERYTHING ELSE. 
+   - If I skip it, I get a 0. That is the only consequence.
+   - Most Homework, Quizzes, and even Midterms (if no transfer rule exists) are Optional.
+"""
 
         print("Generating content...")
         response = model.generate_content([prompt, uploaded_file])
