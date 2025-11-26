@@ -4,7 +4,7 @@ import { BookOpen, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 const SyllabusDashboard = ({ data }) => {
     if (!data) return null;
 
-    const { assignments, policies } = data;
+    const { assignments, policies, raw_omniscient_json } = data;
 
     // Helper to get badge color based on type
     const getStatusBadge = (type) => {
@@ -21,19 +21,46 @@ const SyllabusDashboard = ({ data }) => {
         }
     };
 
+    const handleDownloadRaw = () => {
+        if (!raw_omniscient_json) {
+            console.warn("No raw JSON data available to download.");
+            alert("No raw analysis data available.");
+            return;
+        }
+
+        const jsonString = JSON.stringify(raw_omniscient_json, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "syllabus_analysis_raw.json";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <div className="w-full max-w-4xl mx-auto space-y-6 animate-fade-in">
 
             {/* Course Breakdown */}
             <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                <div className="p-6 border-b border-slate-700">
-                    <h3 className="text-lg font-semibold text-white flex items-center">
-                        <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
-                        Course Breakdown
-                    </h3>
-                    <p className="text-slate-400 text-sm mt-1">
-                        Detailed analysis of grading components and policies.
-                    </p>
+                <div className="p-6 border-b border-slate-700 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-lg font-semibold text-white flex items-center">
+                            <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
+                            Course Breakdown
+                        </h3>
+                        <p className="text-slate-400 text-sm mt-1">
+                            Detailed analysis of grading components and policies.
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleDownloadRaw}
+                        className="text-sm px-3 py-1.5 rounded-md text-blue-400 hover:text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors"
+                    >
+                        Download Raw Analysis
+                    </button>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -41,6 +68,7 @@ const SyllabusDashboard = ({ data }) => {
                             <tr>
                                 <th className="px-6 py-4 font-medium">Assignment</th>
                                 <th className="px-6 py-4 font-medium">Weight</th>
+                                <th className="px-6 py-4 font-medium">Due Date</th>
                                 <th className="px-6 py-4 font-medium">Category</th>
                                 <th className="px-6 py-4 font-medium">Rules / Evidence</th>
                             </tr>
@@ -50,6 +78,9 @@ const SyllabusDashboard = ({ data }) => {
                                 <tr key={index} className="hover:bg-slate-700/30 transition-colors">
                                     <td className="px-6 py-4 text-white font-medium">{item.name}</td>
                                     <td className="px-6 py-4 text-slate-300">{item.weight}%</td>
+                                    <td className="px-6 py-4 text-slate-300 text-sm">
+                                        {item.due_date ? item.due_date : "-"}
+                                    </td>
                                     <td className="px-6 py-4">
                                         {getStatusBadge(item.type)}
                                     </td>
