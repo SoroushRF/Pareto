@@ -161,18 +161,6 @@ system_prompt = """
     }
   ],
 
-  "staff_and_support": [
-    {
-      "role": "String (e.g., 'Instructor', 'Lab Coordinator', 'TA', 'Technician', 'Peer Mentor')",
-      "name": "String",
-      "email": "String",
-      "office_location": "String",
-      "office_hours": ["String (e.g., 'Wed 3:00-4:30 PM')"],
-      "communication_policy": "String (e.g., 'Must use subject line [EECS1011]', 'Use eClass chat only', 'No emails')",
-      "responsibilities": "String (e.g., 'Contact for lab hardware issues only', 'Grading inquiries')"
-    }
-  ],
-
   "logistics_and_schedule": {
     "lecture_times": [
         {
@@ -185,18 +173,6 @@ system_prompt = """
     "lab_times": ["String (e.g., 'Weekly, check individual schedule')"],
     "exam_period_window": "String (e.g., 'Dec 4 - Dec 19')"
   },
-
-  "materials_and_costs": [
-    {
-      "category": "String (e.g., 'Textbook', 'Hardware', 'Software', 'PPE', 'Subscription')",
-      "name": "String (e.g., 'Arduino Starter Kit', 'Safety Glasses', 'iClicker App')",
-      "cost_estimate": "String (e.g., '$89.95 + HST')",
-      "is_mandatory": "Boolean",
-      "purchase_info": "String (e.g., 'Bookstore only', 'Download link', 'Class Key: 1234')",
-      "borrowing_info": "String (e.g., 'Student government exchange available', 'Library loan')",
-      "technical_requirements": "String (e.g., 'Personal laptop required', 'Windows/Mac only', 'Webcam required')"
-    }
-  ],
 
   "safety_and_requirements": {
     "_comment": "Specific to labs, workshops, and experiential events.",
@@ -311,23 +287,10 @@ system_prompt = """
       "limitations": "String (e.g., 'Max 1 self-declaration per term', 'Deferral request within 1 week')"
     },
 
-    "academic_integrity": {
-      "general_statement": "String",
-      "ai_tools_rules": "String (Specific rules on ChatGPT/Copilot)",
-      "code_reuse_rules": "String (e.g., 'Self-plagiarism forbidden', '0 marks for unoriginal code')",
-      "sharing_rules": "String (e.g., 'Uploading to CourseHero/Chegg is a violation')"
-    },
-
     "intellectual_property": {
         "lecture_recordings": "String (e.g., 'Instructor copyright, no distribution', 'Zoom notifies when recording')",
         "student_work": "String (e.g., 'Student retains copyright but grants license to University')"
     },
-
-    "accessibility_and_accommodations": {
-      "contact_point": "String (e.g., 'Student Accessibility Services')",
-      "deadline_for_requests": "String (e.g., 'First 3 weeks of term', 'As early as possible')",
-      "religious_observance_policy": "String"
-    }
   },
 
   "calendar_events": [
@@ -455,7 +418,13 @@ async def analyze_syllabus(file: UploadFile = File(...)):
 
         print("DEBUG: JSON parsed successfully. Running Logic Adapter...")
 
-        return organize_syllabus_data(raw_data)
+        result = organize_syllabus_data(raw_data)
+        
+        # Add Timing Info
+        total_duration = time.time() - start_time
+        result["analysis_duration_seconds"] = round(total_duration, 2)
+        
+        return result
 
     except Exception as e:
         print(f"CRITICAL ERROR: {str(e)}")

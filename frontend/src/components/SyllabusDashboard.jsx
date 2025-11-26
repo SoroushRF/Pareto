@@ -4,7 +4,7 @@ import { BookOpen, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 const SyllabusDashboard = ({ data }) => {
     if (!data) return null;
 
-    const { assignments, policies, raw_omniscient_json } = data;
+    const { assignments, policies, raw_omniscient_json, analysis_duration_seconds } = data;
 
     // Helper to get badge color based on type
     const getStatusBadge = (type) => {
@@ -50,6 +50,11 @@ const SyllabusDashboard = ({ data }) => {
                         <h3 className="text-lg font-semibold text-white flex items-center">
                             <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
                             Course Breakdown
+                            {analysis_duration_seconds && (
+                                <span className="ml-3 text-xs font-normal text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full border border-slate-600">
+                                    {analysis_duration_seconds}s
+                                </span>
+                            )}
                         </h3>
                         <p className="text-slate-400 text-sm mt-1">
                             Detailed analysis of grading components and policies.
@@ -59,7 +64,7 @@ const SyllabusDashboard = ({ data }) => {
                         onClick={handleDownloadRaw}
                         className="text-sm px-3 py-1.5 rounded-md text-blue-400 hover:text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors"
                     >
-                        Download Raw Analysis
+                        Download Raw Analysis (JSON)
                     </button>
                 </div>
                 <div className="overflow-x-auto">
