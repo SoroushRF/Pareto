@@ -5,7 +5,6 @@ import { Upload, Loader2, AlertCircle } from 'lucide-react';
 const UploadZone = ({ onAnalysisComplete }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [targetGrade, setTargetGrade] = useState(80);
 
     const handleFileUpload = async (event) => {
         const file = event.target.files[0];
@@ -16,7 +15,6 @@ const UploadZone = ({ onAnalysisComplete }) => {
 
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('target_grade', targetGrade);
 
         try {
             const response = await axios.post('http://localhost:8000/analyze', formData, {
@@ -39,8 +37,8 @@ const UploadZone = ({ onAnalysisComplete }) => {
                 {loading ? (
                     <div className="flex flex-col items-center py-8">
                         <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-                        <p className="text-lg font-medium text-blue-400">Analyzing your fate...</p>
-                        <p className="text-sm text-slate-400 mt-2">Calculating the optimal path to {targetGrade}%...</p>
+                        <p className="text-lg font-medium text-blue-400">Analyzing Syllabus...</p>
+                        <p className="text-sm text-slate-400 mt-2">Extracting grading rules and policies...</p>
                     </div>
                 ) : (
                     <>
@@ -51,24 +49,6 @@ const UploadZone = ({ onAnalysisComplete }) => {
                         </div>
                         <h3 className="text-xl font-semibold text-white mb-2">Upload Syllabus</h3>
                         <p className="text-slate-400 mb-6">Drag and drop your PDF here, or click to browse</p>
-
-                        <div className="mb-8 max-w-xs mx-auto">
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                                Desired Grade: <span className="text-blue-400 font-bold">{targetGrade}%</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="50"
-                                max="100"
-                                value={targetGrade}
-                                onChange={(e) => setTargetGrade(e.target.value)}
-                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                            />
-                            <div className="flex justify-between text-xs text-slate-500 mt-1">
-                                <span>50%</span>
-                                <span>100%</span>
-                            </div>
-                        </div>
 
                         <label className="inline-flex items-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg cursor-pointer transition-colors">
                             <span>Select PDF</span>

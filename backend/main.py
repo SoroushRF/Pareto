@@ -25,114 +25,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def calculate_strategic_plan(data, target_grade):
+def organize_syllabus_data(data):
     """
-    V4 Logic: Handles Internal Drops, External Transfers, and Standard Options.
+    Cleans and organizes the extracted syllabus data.
     """
     total_points = data.get('total_points', 100)
     assignments = data.get('assignments', [])
+    policies = data.get('policies', [])
     
-    slack_budget = total_points * (1 - (target_grade / 100.0))
-    current_slack_used = 0
-    
-    skipped_items = []
-    must_do_items = []
-    
-    # --- PHASE 1: PROCESS SPECIAL TYPES ---
-    for item in assignments:
-        category = item.get('type', 'optional')
-        weight = item.get('weight', 0)
-        name = item.get('name', 'Assignment')
-        details = item.get('details', {})
-
-        # 1. INTERNAL DROPS (The "Freebies")
-        if category == 'internal_drop':
-            drop_count = details.get('drop_count', 0)
-            if drop_count > 0:
-                # Add the Free Skips
-                for i in range(int(drop_count)):
-                    skipped_items.append({
-                        'name': f"{name} - Free Skip #{i+1}",
-                        'status': 'Free Skip',
-                        'message': f"Lowest grade dropped. (Weight: 0%)",
-                        'weight': 0
-                    })
-                # The rest is technically Must Do (or Optional), 
-                # but to simplify the UI, we mark the 'Core' as Must Do
-                must_do_items.append({
-                    'name': f"{name} (Remainder)",
-                    'status': 'Must Do',
-                    'message': f"You used your {drop_count} drops. The rest count.",
-                    'weight': weight
-                })
-            continue
-
-        # 2. EXTERNAL TRANSFERS (Risk Shifting)
-        if category == 'external_transfer':
-            target = details.get('transfer_target', 'Final Exam')
-            if weight < 25:
-                skipped_items.append({
-                    'name': name,
-                    'status': 'Transferable',
-                    'message': f"Weight moves to {target}. No points lost.",
-                    'weight': 0
-                })
-            else:
-                must_do_items.append({
-                    'name': name,
-                    'status': 'High Risk Transfer',
-                    'message': f"Too heavy ({weight}%) to transfer to {target}.",
-                    'weight': weight
-                })
-            continue
-
-        # 3. STRICTLY MANDATORY
-        if category == 'strictly_mandatory':
-            must_do_items.append({
-                'name': name,
-                'status': 'Critical',
-                'message': "Explicit Failure Condition.",
-                'weight': weight
-            })
-            continue
-
-        # 4. OPTIONAL (Will process in Phase 2)
-        item['_is_standard_optional'] = True
-
-    # --- PHASE 2: THE KNAPSACK (Standard Optional Items) ---
-    optional_candidates = [a for a in assignments if a.get('_is_standard_optional')]
-    optional_candidates.sort(key=lambda x: x['weight'])
-
-    for item in optional_candidates:
-        weight = item['weight']
-        if current_slack_used + weight <= slack_budget:
-            current_slack_used += weight
-            skipped_items.append({
-                'name': item['name'],
-                'status': 'Skipped',
-                'message': f"Burned {weight}% of slack budget.",
-                'weight': weight
-            })
-        else:
-            must_do_items.append({
-                'name': item['name'],
-                'status': 'Must Do',
-                'message': "Not enough slack budget.",
-                'weight': weight
-            })
-
-    summary = f"Strategy: {len(skipped_items)} items skipped. {round(current_slack_used, 1)}% budget used."
+    # Sort assignments by weight (descending)
+    assignments.sort(key=lambda x: x.get('weight', 0), reverse=True)
 
     return {
         "total_points": total_points,
         "assignments": assignments, 
-        "policies": data.get('policies', []),
-        "target_grade": target_grade,
-        "slack_budget": round(slack_budget, 1),
-        "slack_used": round(current_slack_used, 1),
-        "must_do": must_do_items,
-        "safe_to_skip": skipped_items,
-        "summary": summary
+        "policies": policies
     }
 
 @app.get("/")
@@ -140,7 +47,7 @@ def read_root():
     return {"status": "Pareto Backend Online"}
 
 @app.post("/analyze")
-async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = Form(80)):
+async def analyze_syllabus(file: UploadFile = File(...)):
     temp_filename = f"temp_{file.filename}"
     try:
         # Save the file temporarily
@@ -155,22 +62,26 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
         
         # System prompt - Pure Extraction
         prompt = """
-            You are an expert academic strategist. Your goal is to extract the grading scheme from a syllabus.
-            You must distinguish between "Mandatory" work, "Optional" work (lost points), and "Transferable" work (risk shifting).
+            You are an expert academic strategist. Analyze the syllabus to determine the grading mechanism for every assessment.
+
+            Return ONLY valid JSON.
 
             ### INSTRUCTIONS
             1. Analyze the text to find all assessments.
             2. Look for "Drop Rules" (e.g., "lowest 2 dropped") -> These are 'internal_drop'.
             3. Look for "Transfer Rules" (e.g., "missed midterm weight goes to final") -> These are 'external_transfer'.
             4. Look for "Strict Failures" (e.g., "must pass final to pass course") -> These are 'strictly_mandatory'.
-            5. EVERYTHING ELSE is 'optional' (meaning if you skip it, you get a 0, but don't auto-fail).
+            5. EVERYTHING ELSE is 'standard_graded' (meaning if you skip it, you lose the points, but don't auto-fail).
+            6. Extract general "Policies" regarding late penalties, passing thresholds, or special conditions.
 
             ### ONE-SHOT LEARNING EXAMPLE (FOLLOW THIS PATTERN EXACTLY)
 
             Input Text excerpt:
             "Labs are worth 15%. The best 9 of 11 labs will be counted. 
             Participation is 10%, consisting of 3 lab check-ins (3%) and 10 of 14 lecture activities (7%).
-            Midterms are 20%. If you miss the first midterm, its weight transfers to the second."
+            Midterms are 20%. If you miss the first midterm, its weight transfers to the second.
+            The Final Exam is 35%. 
+            Late labs are penalized 10% per day. You must pass the safety quiz to pass the course."
 
             Correct JSON Output:
             {
@@ -180,20 +91,21 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
                 "name": "Labs",
                 "weight": 15,
                 "type": "internal_drop", 
-                "details": { "drop_count": 2, "total_sub_items": 11 },
+                "details": { "drop_count": 2, "total_items": 11 },
                 "evidence": "best 9 of 11 labs will be counted"
                 },
                 {
                 "name": "Lab Check-ins",
                 "weight": 3,
-                "type": "optional",
+                "type": "standard_graded",
+                "details": {},
                 "evidence": "3 lab check-ins (3%)"
                 },
                 {
                 "name": "Lecture Activities",
                 "weight": 7,
                 "type": "internal_drop",
-                "details": { "drop_count": 4, "total_sub_items": 14 },
+                "details": { "drop_count": 4, "total_items": 14 },
                 "evidence": "10 of 14 lecture activities"
                 },
                 {
@@ -202,14 +114,34 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
                 "type": "external_transfer",
                 "details": { "transfer_target": "Midterm 2" },
                 "evidence": "weight transfers to the second"
+                },
+                {
+                "name": "Final Exam",
+                "weight": 35,
+                "type": "standard_graded",
+                "details": {},
+                "evidence": "Final Exam is 35%"
+                },
+                {
+                "name": "Safety Quiz",
+                "weight": 0,
+                "type": "strictly_mandatory",
+                "details": {},
+                "evidence": "Must pass the safety quiz to pass the course"
                 }
+            ],
+            "policies": [
+                "Late labs are penalized 10% per day.",
+                "Must pass the safety quiz to pass the course.",
+                "Best 9 of 11 labs counted."
             ]
             }
 
             ### END EXAMPLE
 
             Now, analyze the user's PDF and return ONLY valid JSON matching this structure.
-            """
+
+"""
         print("Generating content...")
         response = model.generate_content([prompt, uploaded_file])
         
@@ -225,11 +157,10 @@ async def analyze_syllabus(file: UploadFile = File(...), target_grade: int = For
             
         data = json.loads(text)
         
-        # Calculate Strategy Deterministically
-        strategy = calculate_strategic_plan(data, target_grade)
-        data['strategy'] = strategy
+        # Organize Data
+        organized_data = organize_syllabus_data(data)
         
-        return data
+        return organized_data
 
     except Exception as e:
         # Cleanup if error occurs
