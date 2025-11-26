@@ -26,15 +26,23 @@ app.add_middleware(
 )
 
 def organize_syllabus_data(data):
-    """
-    Cleans and organizes the extracted syllabus data.
-    """
     total_points = data.get('total_points', 100)
     assignments = data.get('assignments', [])
     policies = data.get('policies', [])
-    
-    # Sort assignments by weight (descending)
-    assignments.sort(key=lambda x: x.get('weight', 0), reverse=True)
+
+    # Define sort priority: Mandatory first, then Standard, then Transfers/Drops
+    priority_map = {
+        "strictly_mandatory": 3,
+        "standard_graded": 2,
+        "external_transfer": 1,
+        "internal_drop": 0
+    }
+
+    # Sort: Primary key = Priority (Desc), Secondary key = Weight (Desc)
+    assignments.sort(key=lambda x: (
+        priority_map.get(x.get('type'), 0), 
+        x.get('weight', 0)
+    ), reverse=True)
 
     return {
         "total_points": total_points,
