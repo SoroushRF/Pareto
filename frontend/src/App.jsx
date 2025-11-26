@@ -53,7 +53,12 @@ function App() {
         ) : (
           <div className="space-y-8">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-white">Analysis Results</h2>
+              <div className="flex flex-col">
+                <h2 className="text-2xl font-bold text-white">Analysis Results</h2>
+                {syllabusData.filename && (
+                  <p className="text-sm text-slate-400">File: {syllabusData.filename}</p>
+                )}
+              </div>
               <button
                 onClick={() => setSyllabusData(null)}
                 className="text-sm text-slate-400 hover:text-white transition-colors"

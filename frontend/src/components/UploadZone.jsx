@@ -24,7 +24,7 @@ const UploadZone = ({ onAnalysisComplete }) => {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            onAnalysisComplete(response.data);
+            onAnalysisComplete({ ...response.data, filename: file.name });
         } catch (err) {
             console.error("Upload failed:", err);
             setError("Failed to analyze syllabus. Please try again.");

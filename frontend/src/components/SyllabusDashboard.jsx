@@ -24,9 +24,49 @@ const SyllabusDashboard = ({ data }) => {
                 </div>
             </div>
 
+            {/* Assignments Breakdown */}
+            <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+                <div className="p-6 border-b border-slate-700">
+                    <h3 className="text-lg font-semibold text-white flex items-center">
+                        <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
+                        Grading Breakdown
+                    </h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-900/50 text-slate-400 text-sm uppercase">
+                            <tr>
+                                <th className="px-6 py-4 font-medium">Assignment</th>
+                                <th className="px-6 py-4 font-medium">Weight</th>
+                                <th className="px-6 py-4 font-medium">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700">
+                            {assignments?.map((item, index) => (
+                                <tr key={index} className="hover:bg-slate-700/30 transition-colors">
+                                    <td className="px-6 py-4 text-white font-medium">{item.name}</td>
+                                    <td className="px-6 py-4 text-slate-300">{item.weight}%</td>
+                                    <td className="px-6 py-4">
+                                        {item.mandatory ? (
+                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400">
+                                                Mandatory
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400">
+                                                Optional
+                                            </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             {/* Strategy Section */}
             {data.strategy && (
-                <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden mb-6">
+                <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                     <div className="p-6 border-b border-slate-700">
                         <h3 className="text-lg font-semibold text-white flex items-center">
                             <div className="w-2 h-2 rounded-full bg-blue-500 mr-2 animate-pulse"></div>
@@ -72,46 +112,6 @@ const SyllabusDashboard = ({ data }) => {
                     </div>
                 </div>
             )}
-
-            {/* Assignments Breakdown */}
-            <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                <div className="p-6 border-b border-slate-700">
-                    <h3 className="text-lg font-semibold text-white flex items-center">
-                        <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
-                        Grading Breakdown
-                    </h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-900/50 text-slate-400 text-sm uppercase">
-                            <tr>
-                                <th className="px-6 py-4 font-medium">Assignment</th>
-                                <th className="px-6 py-4 font-medium">Weight</th>
-                                <th className="px-6 py-4 font-medium">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-700">
-                            {assignments?.map((item, index) => (
-                                <tr key={index} className="hover:bg-slate-700/30 transition-colors">
-                                    <td className="px-6 py-4 text-white font-medium">{item.name}</td>
-                                    <td className="px-6 py-4 text-slate-300">{item.weight}%</td>
-                                    <td className="px-6 py-4">
-                                        {item.mandatory ? (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400">
-                                                Mandatory
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400">
-                                                Optional
-                                            </span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
 
             {/* Policies */}
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
