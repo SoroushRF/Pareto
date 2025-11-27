@@ -496,20 +496,26 @@ async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <-
         
         # 3. Build Response Chunk by Chunk + MONITOR CONNECTION
         full_text = ""
+# ... inside analyze_syllabus ...
+        
         print(f"DEBUG: Streaming response...")
         
         async for chunk in response_stream:
-            # --- THE FIX: PULSE CHECK ---
-            # Every time Google sends a chunk, we check if the User is still connected.
+            # 1. Pulse Check (Cancellation)
             if await request.is_disconnected():
                 print(f"🛑 OPERATION ABORTED: User disconnected at {time.time() - start_time:.2f}s")
                 if os.path.exists(temp_filename):
                     os.remove(temp_filename)
-                return # Hard Stop
-            # ----------------------------
+                return 
 
-            if chunk.text:
-                full_text += chunk.text
+            # 2. Safe Text Extraction (The Fix)
+            try:
+                # Only add text if the chunk actually contains text parts
+                if chunk.parts:
+                    full_text += chunk.text
+            except Exception as chunk_error:
+                # If a chunk is empty/metadata-only, ignore it and keep going
+                continue
         
         print(f"DEBUG: Generation complete ({time.time() - start_time:.2f}s)")
         os.remove(temp_filename)
