@@ -72,7 +72,7 @@ function App() {
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
                 <h2 className="text-2xl font-bold text-white">Analysis Results</h2>
-                {/* Fallback: Try 'filename' (from UploadZone) OR the deep path */}
+                {/* Fallback: Try 'filename' (from UploadZone) OR the deep path ==1 */}
                 {(syllabusData.filename || syllabusData.raw_omniscient_json?.syllabus_metadata?.source_file_name) && (
                   <p className="text-sm text-slate-400">
                     File: {syllabusData.filename || syllabusData.raw_omniscient_json?.syllabus_metadata?.source_file_name}

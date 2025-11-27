@@ -515,7 +515,7 @@ async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <-
         os.remove(temp_filename)
         
         # 4. Parse Response (Standard logic continues...)
-        # Only runs if user stayed connected the whole time
+        # Only runs if user stayed connected the whole time ==1
         text = full_text
         print("DEBUG: Raw text received (First 100 chars):", text[:100])
         
