@@ -255,6 +255,7 @@ Pareto/
 ├── 📄 run_dev.sh               # Quick start script (Unix)
 ├── 📄 run_dev.bat              # Quick start script (Windows)
 ├── 📄 .gitignore               # Git ignore rules
+└── 📄 LICENSE                  # App license
 └── 📄 README.md                # This file
 ```
 
