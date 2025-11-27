@@ -1,3 +1,5 @@
+#This is the main prompt sent to the LLM.
+
 system_prompt = """
 {
 You are an expert Academic Auditor and Logic Engine. Your goal is NOT just to "read" the syllabus, but to **deconstruct** it into a rigid, deterministic database.
