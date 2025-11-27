@@ -39,7 +39,7 @@
     - [Health Check](#health-check)
     - [Analyze Syllabus](#analyze-syllabus)
   - [🧠 How It Works](#-how-it-works)
-  - [💡 Development Insights & Challenges](#-development-insights-&-challenges)
+  - [💡 Development Insights & Challenges](#-development-insights--challenges)
   - [🤝 Contributing](#-contributing)
   - [📄 License](#-license)
   - [🙏 Acknowledgments](#-acknowledgments)
