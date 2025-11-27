@@ -39,7 +39,7 @@ originalName = originalName.replace(/\.[^/.]+$/, "");
         // Get Today's Date in YYYY-MM-DD format
         const dateStr = new Date().toISOString().split('T')[0];
         
-        // Create new name: [filename]_analysis_[date].json ==1
+        // Create new name: [filename]_analysis_[date].json 
         const downloadName = `${originalName}_analysis_${dateStr}.json`;
 
         // 2. Create and Trigger Download

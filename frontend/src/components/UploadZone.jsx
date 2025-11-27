@@ -57,7 +57,7 @@ const UploadZone = ({ onAnalysisComplete }) => {
             const serverError = err.response?.data?.error;
             setError(serverError || "Failed to analyze syllabus. Please try again.");
         } finally {
-            // Only turn off loading if we weren't canceled (prevents UI flicker ==1)
+            // Only turn off loading if we weren't canceled (prevents UI flicker)
             if (!axios.isCancel(err)) {
                 setLoading(false);
             }
