@@ -2,7 +2,7 @@ import os
 import shutil
 import json
 import time
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -52,30 +52,16 @@ class DateInfo(BaseModel):
 class AssessmentComponent(BaseModel):
     id: Optional[str] = None
     name: str = "Unknown Assignment"
-    weight_percentage: float = 0.0
+    category: Optional[str] = None
     
-    # FIX: Optional int handles nulls
-    quantity: Optional[int] = 1
+    # FIX 1: Allow Strings (e.g., "Variable") instead of crashing
+    weight_percentage: Optional[Union[float, str]] = 0.0
     
-    # FIX: This is the missing field that caused your crash!
-    dates: DateInfo = Field(default_factory=DateInfo)
+    # FIX 2: Allow Strings (e.g., "See eClass") 
+    quantity: Optional[Union[int, str]] = 1
     
-    # FIX: GradingMechanic must be defined above this class
-    grading_mechanics: GradingMechanic = Field(default_factory=GradingMechanic)
-    weight_transfer_logic: List[WeightTransfer] = []
-    
-    # Evidence at the bottom is fine since we force Gemini to find it first in prompt
-    evidence: Optional[str] = None
-    
-    # Allow extra fields just in case
-    model_config = {"extra": "allow"}
-    
-    # FIX: Changed 'int' to 'Optional[int]' to handle nulls
-    quantity: Optional[int] = 1
-    
-    # We will fix the Date issue in the next step, keep this commented or flat for now
-    # to focus strictly on the crash you saw.
-    due_date: Optional[str] = None 
+    # FIX 3: Explicitly allow None for dates
+    dates: Optional[DateInfo] = Field(default_factory=DateInfo)
     
     grading_mechanics: GradingMechanic = Field(default_factory=GradingMechanic)
     weight_transfer_logic: List[WeightTransfer] = []
@@ -106,6 +92,45 @@ class OmniscientSyllabus(BaseModel):
 
 system_prompt = """
 {
+You are an expert Academic Auditor and Logic Engine. Your goal is NOT just to "read" the syllabus, but to **deconstruct** it into a rigid, deterministic database.
+
+### 🛑 PRIME DIRECTIVE: THE "REALITY CHECK"
+You must filter out "Noise" vs. "Gradeable Work".
+1.  **If it doesn't have a Weight (%) or Point Value, it DOES NOT EXIST.**
+    * Ignore "Learning Outcomes" (CLOs), "Weekly Topics", or "Suggested Readings" unless they are explicitly graded.
+    * Ignore "Class Activities" if they are vague participation requirements without a specific percentage attached.
+2.  **If it looks like a header, ignore it.**
+    * Example: If the text says "Assessments: 1. Midterm 2. Final", do NOT create an item called "Assessments". Create items for "Midterm" and "Final".
+
+### ⚡ CRITICAL LOGIC: SPLITTING GROUPED ITEMS (THE "ATOMIC" RULE)
+Syllabi often group items like "Midterms (2) ... 20%".
+You must **SPLIT** these into individual atomic entries in the `components` list.
+* **WRONG:** `{ "name": "Midterms", "quantity": 2, "weight": 20 }`
+* **RIGHT:**
+    * Item 1: `{ "name": "Midterm 1", "weight": 10, "quantity": 1 }`
+    * Item 2: `{ "name": "Midterm 2", "weight": 10, "quantity": 1 }`
+
+**WHY?** Because transfer logic relies on distinct events. "Midterm 1 transfers to Midterm 2" is impossible if they are one entry.
+* *Exception:* If they are truly identical small items (e.g., "Weekly Quizzes (10)"), you may group them as `{ "name": "Weekly Quizzes", "quantity": 10 }` ONLY IF no specific dates or distinct transfer rules apply to specific ones.
+
+### 🔍 EVIDENCE CONSTRAINT (NO WALLS OF TEXT)
+Your `evidence` field is for **Verification**, not summarization.
+* **Strict Limit:** Maximum 1-2 sentences.
+* **Content:** Quote the **exact specific line** that defines the weight, drop rule, or transfer policy.
+* **Do Not:** Copy entire paragraphs about academic integrity into the assignment evidence.
+
+### 📝 FIELD-SPECIFIC RULES
+1.  **Dates:** Convert ALL dates to strict `YYYY-MM-DD` format. If the year is missing, infer `2025` (or current academic year). If a date is a range (e.g., "Week of Oct 2"), use the Monday of that week.
+2.  **Mandatory Status (`grading_mechanics`):**
+    * `is_mandatory_submission`: **TRUE** ONLY if the syllabus explicitly says "Failure to submit results in F" or "Must pass this component to pass course".
+    * **FALSE** for everything else (even if it's worth 50%). A zero is not a failure of the *course*, it's just a zero.
+3.  **Transfer Logic:**
+    * If text says "Higher mark counts", this is a Transfer Rule.
+    * If text says "Missed test weight moves to final", this is a Transfer Rule.
+
+### 📄 THE OUTPUT TEMPLATE
+You must output valid JSON that strictly adheres to this schema. Do not add keys. Do not remove keys. Fill every field. If data is missing, use `null`.
+
   "_template_version": "5.1 - The 'Omniscient' Final Standard (Corrected)",
   "_description": "The ultimate syllabus analysis structure. Handles every conceivable grading logic, accreditation detail, logistical nuance, and event scheduling requirement found in Engineering/University courses.",
   
@@ -161,6 +186,18 @@ system_prompt = """
     }
   ],
 
+  "staff_and_support": [
+    {
+      "role": "String (e.g., 'Instructor', 'Lab Coordinator', 'TA', 'Technician', 'Peer Mentor')",
+      "name": "String",
+      "email": "String",
+      "office_location": "String",
+      "office_hours": ["String (e.g., 'Wed 3:00-4:30 PM')"],
+      "communication_policy": "String (e.g., 'Must use subject line [EECS1011]', 'Use eClass chat only', 'No emails')",
+      "responsibilities": "String (e.g., 'Contact for lab hardware issues only', 'Grading inquiries')"
+    }
+  ],
+
   "logistics_and_schedule": {
     "lecture_times": [
         {
@@ -173,6 +210,18 @@ system_prompt = """
     "lab_times": ["String (e.g., 'Weekly, check individual schedule')"],
     "exam_period_window": "String (e.g., 'Dec 4 - Dec 19')"
   },
+
+  "materials_and_costs": [
+    {
+      "category": "String (e.g., 'Textbook', 'Hardware', 'Software', 'PPE', 'Subscription')",
+      "name": "String (e.g., 'Arduino Starter Kit', 'Safety Glasses', 'iClicker App')",
+      "cost_estimate": "String (e.g., '$89.95 + HST')",
+      "is_mandatory": "Boolean",
+      "purchase_info": "String (e.g., 'Bookstore only', 'Download link', 'Class Key: 1234')",
+      "borrowing_info": "String (e.g., 'Student government exchange available', 'Library loan')",
+      "technical_requirements": "String (e.g., 'Personal laptop required', 'Windows/Mac only', 'Webcam required')"
+    }
+  ],
 
   "safety_and_requirements": {
     "_comment": "Specific to labs, workshops, and experiential events.",
@@ -287,10 +336,23 @@ system_prompt = """
       "limitations": "String (e.g., 'Max 1 self-declaration per term', 'Deferral request within 1 week')"
     },
 
+    "academic_integrity": {
+      "general_statement": "String",
+      "ai_tools_rules": "String (Specific rules on ChatGPT/Copilot)",
+      "code_reuse_rules": "String (e.g., 'Self-plagiarism forbidden', '0 marks for unoriginal code')",
+      "sharing_rules": "String (e.g., 'Uploading to CourseHero/Chegg is a violation')"
+    },
+
     "intellectual_property": {
         "lecture_recordings": "String (e.g., 'Instructor copyright, no distribution', 'Zoom notifies when recording')",
         "student_work": "String (e.g., 'Student retains copyright but grants license to University')"
     },
+
+    "accessibility_and_accommodations": {
+      "contact_point": "String (e.g., 'Student Accessibility Services')",
+      "deadline_for_requests": "String (e.g., 'First 3 weeks of term', 'As early as possible')",
+      "religious_observance_policy": "String"
+    }
   },
 
   "calendar_events": [
@@ -308,42 +370,48 @@ system_prompt = """
 # ==========================================
 
 def organize_syllabus_data(raw_data: dict):
-    # 1. Validation (Soft)
+    print("DEBUG: Starting organize_syllabus_data...")
+    
+    # 1. Validation
     try:
-        # Pydantic validates 'assessment_structure' and 'global_policies'
-        # Ignores 'materials_and_costs', 'course_identity' etc. (but keeps them)
         syllabus = OmniscientSyllabus(**raw_data)
+        print("DEBUG: Pydantic Validation PASSED (Strict).")
     except Exception as e:
-        print(f"Validation Warning: {e}")
+        print(f"DEBUG: Validation Warning (Soft Fail): {e}")
         syllabus = OmniscientSyllabus.construct(**raw_data)
 
     # 2. Map to Pareto UI
     pareto_assignments = []
     
+    # Safety check for components
     components = []
     if hasattr(syllabus, 'assessment_structure') and syllabus.assessment_structure:
          components = syllabus.assessment_structure.components
+
+    print(f"DEBUG: Processing {len(components)} components...")
 
     for comp in components:
         category_type = "standard_graded"
         details = {}
         
-        # Check Drop Rules
+        # Logic: Drop Rules
         if comp.grading_mechanics.drop_lowest_n and comp.grading_mechanics.drop_lowest_n > 0:
             category_type = "internal_drop"
             details = {"drop_count": comp.grading_mechanics.drop_lowest_n, "total_items": comp.quantity}
-        # Check Transfer Rules
+        # Logic: Transfers
         elif len(comp.weight_transfer_logic) > 0:
             category_type = "external_transfer"
             details = {"transfer_target": comp.weight_transfer_logic[0].target_assessment_id}
-        # Check Mandatory
+        # Logic: Mandatory
         elif comp.grading_mechanics.is_mandatory_submission:
             category_type = "strictly_mandatory"
             
-        # EXTRACT DATE FIX
+        # --- THIS IS THE MISSING BLOCK YOU NEED ---
         due_date = None
+        # Check if the nested 'dates' object exists
         if comp.dates and comp.dates.due_date:
             due_date = comp.dates.due_date
+        # -----------------------------------------
 
         pareto_assignments.append({
             "name": comp.name,
@@ -351,32 +419,39 @@ def organize_syllabus_data(raw_data: dict):
             "type": category_type,
             "details": details,
             "evidence": comp.evidence or "No evidence extracted",
-            "due_date": due_date
+            "due_date": due_date  # <--- This failed because the block above was missing
         })
 
     # Sort
+    # Sort
     priority_map = {"strictly_mandatory": 3, "standard_graded": 2, "external_transfer": 1, "internal_drop": 0}
-    pareto_assignments.sort(key=lambda x: (priority_map.get(x['type'], 0), x['weight']), reverse=True)
+    
+    # FIX: Helper function to safely extract a numeric weight for sorting
+    def get_safe_weight(item):
+        w = item.get('weight', 0)
+        if isinstance(w, (int, float)):
+            return w
+        return 0  # If it's a string like "Variable", treat it as 0 for sorting
 
-    # Policies Extraction (Flattening the nested objects for UI)
+    pareto_assignments.sort(key=lambda x: (
+        priority_map.get(x['type'], 0), 
+        get_safe_weight(x)
+    ), reverse=True)
+    # Policies
     policies = []
     gp = syllabus.global_policies
-    
-    # Helper to safe-extract string summaries from dictionaries
     if gp.lateness_policy and isinstance(gp.lateness_policy, dict):
         policies.append(f"Late Policy: {gp.lateness_policy.get('penalty_per_day', 'See syllabus')}")
     if gp.missed_work_policy and isinstance(gp.missed_work_policy, dict):
         policies.append(f"Missed Work: {gp.missed_work_policy.get('general_procedure', 'See syllabus')}")
-    if gp.academic_integrity and isinstance(gp.academic_integrity, dict):
-        policies.append("Academic Integrity: Strict rules apply (see raw data).")
 
+    print("DEBUG: Organization complete. Returning data.")
     return {
         "total_points": 100,
         "assignments": pareto_assignments,
         "policies": policies,
-        "raw_omniscient_json": raw_data # The Full Payload for Download
+        "raw_omniscient_json": raw_data
     }
-
 # ==========================================
 # 5. API
 # ==========================================
@@ -418,13 +493,7 @@ async def analyze_syllabus(file: UploadFile = File(...)):
 
         print("DEBUG: JSON parsed successfully. Running Logic Adapter...")
 
-        result = organize_syllabus_data(raw_data)
-        
-        # Add Timing Info
-        total_duration = time.time() - start_time
-        result["analysis_duration_seconds"] = round(total_duration, 2)
-        
-        return result
+        return organize_syllabus_data(raw_data)
 
     except Exception as e:
         print(f"CRITICAL ERROR: {str(e)}")
