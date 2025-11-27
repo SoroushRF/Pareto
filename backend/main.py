@@ -3,6 +3,7 @@ import shutil
 import json
 import time
 from typing import List, Optional, Any, Dict, Union
+from fastapi import Request
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -46,7 +47,8 @@ class WeightTransfer(BaseModel):
 
 class DateInfo(BaseModel):
     due_date: Optional[str] = None
-    is_scheduled_event: bool = False
+    # FIX: Changed 'bool' to 'Optional[bool]' to handle nulls safely
+    is_scheduled_event: Optional[bool] = False
     location_override: Optional[str] = None
 
 class AssessmentComponent(BaseModel):
@@ -127,6 +129,7 @@ Your `evidence` field is for **Verification**, not summarization.
 3.  **Transfer Logic:**
     * If text says "Higher mark counts", this is a Transfer Rule.
     * If text says "Missed test weight moves to final", this is a Transfer Rule.
+4.  **Booleans:** Never return null for boolean fields (like `is_mandatory` or `is_scheduled_event`). Use `false` as the default if the syllabus doesn't explicitly say "True/Yes".
 
 ### 📄 THE OUTPUT TEMPLATE
 You must output valid JSON that strictly adheres to this schema. Do not add keys. Do not remove keys. Fill every field. If data is missing, use `null`.
@@ -459,39 +462,75 @@ def organize_syllabus_data(raw_data: dict):
 @app.get("/")
 def read_root():
     return {"status": "Pareto Backend Online"}
+# Ensure Request is imported: 
+# from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 
 @app.post("/analyze")
-async def analyze_syllabus(file: UploadFile = File(...)):
+async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <--- ADDED request: Request
     print(f"\n--- NEW REQUEST: {file.filename} ---")
     start_time = time.time()
     temp_filename = f"temp_{file.filename}"
+    
     try:
+        # 1. Save File
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            print(f"DEBUG: File saved locally ({time.time() - start_time:.2f}s)")
-            print(f"DEBUG: Uploading {temp_filename} to Gemini...")
+            
+        print(f"DEBUG: File saved locally ({time.time() - start_time:.2f}s)")
 
-        print(f"Uploading {temp_filename} to Gemini...")
+        # Quick check before heavy upload
+        if await request.is_disconnected():
+            print("⚠️ Client disconnected before upload. Aborting.")
+            os.remove(temp_filename)
+            return
+
+        print(f"DEBUG: Uploading {temp_filename} to Gemini...")
         uploaded_file = genai.upload_file(temp_filename)
         print(f"DEBUG: Upload complete ({time.time() - start_time:.2f}s). Starting Generation...")
         
-        # Generate with the Full 5.1 Prompt
-        response = model.generate_content([system_prompt, uploaded_file])
+        # 2. Generate with Streaming
+        response_stream = await model.generate_content_async(
+            [system_prompt, uploaded_file], 
+            stream=True
+        )
+        
+        # 3. Build Response Chunk by Chunk + MONITOR CONNECTION
+        full_text = ""
+        print(f"DEBUG: Streaming response...")
+        
+        async for chunk in response_stream:
+            # --- THE FIX: PULSE CHECK ---
+            # Every time Google sends a chunk, we check if the User is still connected.
+            if await request.is_disconnected():
+                print(f"🛑 OPERATION ABORTED: User disconnected at {time.time() - start_time:.2f}s")
+                if os.path.exists(temp_filename):
+                    os.remove(temp_filename)
+                return # Hard Stop
+            # ----------------------------
+
+            if chunk.text:
+                full_text += chunk.text
+        
         print(f"DEBUG: Generation complete ({time.time() - start_time:.2f}s)")
         os.remove(temp_filename)
         
-        text = response.text
+        # 4. Parse Response (Standard logic continues...)
+        # Only runs if user stayed connected the whole time
+        text = full_text
         print("DEBUG: Raw text received (First 100 chars):", text[:100])
+        
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0]
         elif "```" in text:
             text = text.split("```")[1].split("```")[0]
-
-        print("DEBUG: JSON block extracted. Parsing...")
             
-        raw_data = json.loads(text)
-
         print("DEBUG: JSON parsed successfully. Running Logic Adapter...")
+        raw_data = json.loads(text)
+        
+        if "syllabus_metadata" not in raw_data:
+            raw_data["syllabus_metadata"] = {}
+            
+        raw_data["syllabus_metadata"]["source_file_name"] = file.filename
 
         return organize_syllabus_data(raw_data)
 
