@@ -532,7 +532,16 @@ async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <-
             
         raw_data["syllabus_metadata"]["source_file_name"] = file.filename
 
-        return organize_syllabus_data(raw_data)
+        # Calculate final duration
+        elapsed = round(time.time() - start_time, 2)
+        
+        # Get organized data
+        result = organize_syllabus_data(raw_data)
+        
+        # Inject duration
+        result["analysis_duration"] = elapsed
+        
+        return result
 
     except Exception as e:
         print(f"CRITICAL ERROR: {str(e)}")
