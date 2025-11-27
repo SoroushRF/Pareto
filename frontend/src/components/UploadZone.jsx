@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Upload, Loader2, AlertCircle, FileText } from 'lucide-react';
+import { Upload, Loader2, AlertCircle, FileText, XCircle, RefreshCcw } from 'lucide-react';
 
 const UploadZone = ({ onAnalysisComplete }) => {
     const [loading, setLoading] = useState(false);
@@ -10,7 +10,10 @@ const UploadZone = ({ onAnalysisComplete }) => {
     // REF: Store the controller so we can cancel it anytime
     const abortControllerRef = useRef(null);
 
-    // CLEANUP: Cancel request if component unmounts (user leaves/refreshes)
+    // Allowed Extensions for Validation
+    const ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt', 'md'];
+
+    // CLEANUP: Cancel request if component unmounts
     useEffect(() => {
         return () => {
             if (abortControllerRef.current) {
@@ -19,17 +22,33 @@ const UploadZone = ({ onAnalysisComplete }) => {
         };
     }, []);
 
+    const validateFile = (file) => {
+        const extension = file.name.split('.').pop().toLowerCase();
+        if (!ALLOWED_EXTENSIONS.includes(extension)) {
+            return {
+                valid: false,
+                message: `Unsupported format (.${extension}). Please upload PDF, Image, or Text.`
+            };
+        }
+        return { valid: true };
+    };
+
     const processFile = async (file) => {
         if (!file) return;
 
-        // Cancel any previous pending request before starting a new one
+        // 1. VALIDATION STEP
+        const validation = validateFile(file);
+        if (!validation.valid) {
+            setError(validation.message);
+            return; // Stop here, don't send to backend
+        }
+
+        // Cancel any previous pending request
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
 
-        // Create new controller for this specific request
         abortControllerRef.current = new AbortController();
-
         setLoading(true);
         setError(null);
 
@@ -38,26 +57,19 @@ const UploadZone = ({ onAnalysisComplete }) => {
 
         try {
             const response = await axios.post('http://localhost:8000/analyze', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-                // LINK: Connect the signal to Axios
+                headers: { 'Content-Type': 'multipart/form-data' },
                 signal: abortControllerRef.current.signal
             });
             
             onAnalysisComplete({ ...response.data, filename: file.name });
         } catch (err) {
-            // IGNORE cancellations (don't show red error box)
             if (axios.isCancel(err)) {
-                console.log('Request canceled by user/unmount.');
+                console.log('Request canceled.');
                 return;
             }
-
             console.error("Upload failed:", err);
-            const serverError = err.response?.data?.error;
-            setError(serverError || "Failed to analyze syllabus. Please try again.");
+            setError("Failed to analyze syllabus. Please try again.");
         } finally {
-            // Only turn off loading if we weren't canceled (prevents UI flicker)
             if (!axios.isCancel(err)) {
                 setLoading(false);
             }
@@ -94,27 +106,66 @@ const UploadZone = ({ onAnalysisComplete }) => {
         }
     }, []);
 
+    const resetUpload = () => {
+        setError(null);
+        setLoading(false);
+    };
+
+    // --- DYNAMIC STYLES ---
+    // If Error: Red. If Dragging: Blue. Else: Slate.
+    let borderColor = 'border-slate-700';
+    let bgColor = 'bg-slate-800/50';
+    
+    if (error) {
+        borderColor = 'border-red-500/50';
+        bgColor = 'bg-red-900/10';
+    } else if (isDragging) {
+        borderColor = 'border-blue-500';
+        bgColor = 'bg-blue-500/10';
+    }
+
     return (
         <div className="w-full max-w-xl mx-auto">
             <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                onDragOver={!error && !loading ? handleDragOver : undefined}
+                onDragLeave={!error && !loading ? handleDragLeave : undefined}
+                onDrop={!error && !loading ? handleDrop : undefined}
                 className={`
-                    border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ease-in-out
-                    ${isDragging 
-                        ? 'border-blue-500 bg-blue-500/10 scale-[1.02]' 
-                        : 'border-slate-700 bg-slate-800/50 hover:border-blue-500/50 hover:bg-slate-800'
-                    }
+                    border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ease-in-out relative
+                    ${borderColor} ${bgColor}
+                    ${!error && !loading ? 'hover:border-blue-500/50 hover:bg-slate-800' : ''}
+                    ${isDragging ? 'scale-[1.02]' : ''}
                 `}
             >
-                {loading ? (
+                {/* STATE 1: ERROR VIEW */}
+                {error ? (
+                    <div className="flex flex-col items-center py-4 animate-fade-in">
+                        <div className="p-4 rounded-full bg-red-500/20 mb-4">
+                            <XCircle className="w-10 h-10 text-red-500" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-red-200 mb-2">
+                            Unable to Upload
+                        </h3>
+                        <p className="text-red-400/80 mb-6 max-w-xs">
+                            {error}
+                        </p>
+                        <button 
+                            onClick={resetUpload}
+                            className="inline-flex items-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors shadow-lg shadow-red-900/20"
+                        >
+                            <RefreshCcw className="w-4 h-4 mr-2" />
+                            Try Another File
+                        </button>
+                    </div>
+                ) : loading ? (
+                    /* STATE 2: LOADING VIEW */
                     <div className="flex flex-col items-center py-8 animate-pulse">
                         <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
                         <p className="text-lg font-medium text-blue-400">Analyzing Syllabus...</p>
                         <p className="text-sm text-slate-400 mt-2">Extracting grading rules, dates, and policies...</p>
                     </div>
                 ) : (
+                    /* STATE 3: DEFAULT UPLOAD VIEW */
                     <div className="flex flex-col items-center">
                         <div className={`p-4 rounded-full mb-4 transition-colors ${isDragging ? 'bg-blue-500/20' : 'bg-slate-700'}`}>
                             {isDragging ? (
@@ -148,13 +199,6 @@ const UploadZone = ({ onAnalysisComplete }) => {
                     </div>
                 )}
             </div>
-
-            {error && (
-                <div className="mt-4 p-4 bg-red-900/20 border border-red-800 rounded-lg flex items-start text-red-400 animate-fade-in">
-                    <AlertCircle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm">{error}</div>
-                </div>
-            )}
         </div>
     );
 };
