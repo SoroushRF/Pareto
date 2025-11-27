@@ -39,6 +39,7 @@
     - [Health Check](#health-check)
     - [Analyze Syllabus](#analyze-syllabus)
   - [🧠 How It Works](#-how-it-works)
+  - [💡 Development Insights & Challenges](#-development-insights-&-challenges)
   - [🤝 Contributing](#-contributing)
   - [📄 License](#-license)
   - [🙏 Acknowledgments](#-acknowledgments)
@@ -352,6 +353,21 @@ graph LR
 4. **Validation**: Pydantic models validate and structure the extracted data
 5. **Optimization**: The backend categorizes and sorts assignments by importance
 6. **Display**: Results are rendered in a beautiful, interactive dashboard
+
+---
+
+
+## 💡 Development Insights & Challenges
+
+### The Gemini Prompt Engineering Hurdle
+
+A significant technical hurdle in developing Pareto was constraining the generative output of Google's Gemini model to fit the application's structured data requirements. Initially, the model struggled to consistently classify assessment types (e.g., mandatory, droppable, transferable) across the diverse and often ambiguous language found in different syllabi.
+
+The breakthrough came from a two-part strategy that blends **prompt engineering** with robust **backend validation:**
+
+1.  **The "Omniscient" JSON Template:** Rather than asking the AI to simply find data, it was trained to fill out a meticulously designed JSON schema. This schema, defined in the `system_prompt` variable within `backend/main.py`, acts as a rigid template. It forces the model to structure its entire understanding of the syllabus into a predictable format, covering everything from grading mechanics to specific dates and policy details.
+
+2.  **Pydantic Validation & Python Logic:** Once Gemini returns the completed JSON, the Python backend takes over. The `organize_syllabus_data` function leverages Pydantic models (such as `AssessmentComponent`, `GradingMechanic`, and the top-level `OmniscientSyllabus`) to validate the AI's output. This layer catches any structural errors and then transforms the complex, nested JSON into the clean, prioritized list required by the frontend. This experience of iteratively refining the prompt and data handling logic was a fantastic and practical introduction to AI engineering.
 
 ---
 
