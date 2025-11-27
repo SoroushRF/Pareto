@@ -11,7 +11,7 @@ const UploadZone = ({ onAnalysisComplete }) => {
     const abortControllerRef = useRef(null);
 
     // Allowed Extensions for Validation
-    const ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt', 'md'];
+    const ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt', 'md', 'docx'];
 
     // CLEANUP: Cancel request if component unmounts
     useEffect(() => {
@@ -187,14 +187,15 @@ const UploadZone = ({ onAnalysisComplete }) => {
                             <span>Select File</span>
                             <input
                                 type="file"
-                                accept=".pdf,.png,.jpg,.jpeg,.heic,.txt,.md,application/pdf,image/*,text/plain,text/markdown"
+                                // Added .docx and the official Word MIME type
+                                accept=".pdf,.png,.jpg,.jpeg,.heic,.txt,.md,.docx,application/pdf,image/*,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                 className="hidden"
                                 onChange={handleFileInput}
                             />
                         </label>
                         
                         <p className="mt-4 text-xs text-slate-500">
-                            Supports PDF, PNG, JPG, TXT, MD
+                            Supports PDF, DOCX, PNG, JPG, TXT, MD
                         </p>
                     </div>
                 )}

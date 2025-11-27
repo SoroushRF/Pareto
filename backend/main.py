@@ -9,6 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import google.generativeai as genai
 from pydantic import BaseModel, Field
+import zipfile
+import io
+from docx import Document
+from PIL import Image # Part of Pillow library
 
 # 1. SETUP
 load_dotenv()
@@ -465,6 +469,51 @@ def read_root():
 # Ensure Request is imported: 
 # from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 
+def process_docx(file_path):
+    """
+    Deep Extraction for .docx:
+    1. Uses python-docx to read text/tables.
+    2. Uses zipfile to extract embedded images (e.g. screenshots of tables).
+    """
+    content_parts = []
+    
+    # A. Extract Text
+    try:
+        doc = Document(file_path)
+        full_text = []
+        for para in doc.paragraphs:
+            full_text.append(para.text)
+        for table in doc.tables:
+            for row in table.rows:
+                # Join cells with pipe to simulate table structure
+                row_data = [cell.text for cell in row.cells]
+                full_text.append(" | ".join(row_data))
+        
+        text_content = "\n".join(full_text)
+        if text_content.strip():
+            content_parts.append(text_content)
+            print("DEBUG: Extracted text from DOCX.")
+    except Exception as e:
+        print(f"Warning: Failed to extract text from DOCX: {e}")
+
+    # B. Extract Images (Treating .docx as a ZIP archive)
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            # Look for image files inside the internal structure
+            all_files = z.namelist()
+            media_files = [f for f in all_files if f.startswith('word/media/')]
+            
+            for media_path in media_files:
+                image_data = z.read(media_path)
+                image = Image.open(io.BytesIO(image_data))
+                content_parts.append(image)
+                print(f"DEBUG: Extracted image: {media_path}")
+                
+    except Exception as e:
+        print(f"Warning: Failed to extract images from DOCX: {e}")
+        
+    return content_parts
+
 @app.post("/analyze")
 async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <--- ADDED request: Request
     print(f"\n--- NEW REQUEST: {file.filename} ---")
@@ -485,15 +534,31 @@ async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <-
             return
 
         print(f"DEBUG: Uploading {temp_filename} to Gemini...")
-        uploaded_file = genai.upload_file(temp_filename)
-        print(f"DEBUG: Upload complete ({time.time() - start_time:.2f}s). Starting Generation...")
+
+       # 2. Prepare Content (Switch between DOCX and Standard)
+        gemini_content = [system_prompt]
+
+        if file.filename.lower().endswith(".docx"):
+            print("DEBUG: Detected DOCX. Running Deep Extraction...")
+            # This calls the helper function (process_docx) you added in Phase 2
+            docx_parts = process_docx(temp_filename)
+            if not docx_parts:
+                raise Exception("Failed to extract content (text or images) from DOCX.")
+            gemini_content.extend(docx_parts)
+        else:
+            # Standard Path (PDF, Images, Text)
+            print(f"DEBUG: Uploading {temp_filename} to Gemini...")
+            uploaded_file = genai.upload_file(temp_filename)
+            gemini_content.append(uploaded_file)
+
+        print(f"DEBUG: Prep complete ({time.time() - start_time:.2f}s). Starting Generation...")
         
-        # 2. Generate with Streaming
+        # 3. Generate with Streaming
+        # We pass 'gemini_content' (which now holds Prompt + File/Parts)
         response_stream = await model.generate_content_async(
-            [system_prompt, uploaded_file], 
+            gemini_content, 
             stream=True
         )
-        
         # 3. Build Response Chunk by Chunk + MONITOR CONNECTION
         full_text = ""
 # ... inside analyze_syllabus ...
