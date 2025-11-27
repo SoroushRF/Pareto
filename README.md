@@ -1,5 +1,3 @@
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-<br>
 <div align="center">
 
 # 📊 Pareto
@@ -41,7 +39,6 @@
     - [Health Check](#health-check)
     - [Analyze Syllabus](#analyze-syllabus)
   - [🧠 How It Works](#-how-it-works)
-  - [🧠 Development Insights & Challenges](#-development-insights--challenges)
   - [🤝 Contributing](#-contributing)
   - [📄 License](#-license)
   - [🙏 Acknowledgments](#-acknowledgments)
@@ -50,9 +47,9 @@
 
 ## 🎯 About
 
-**Pareto** is named after the [Pareto Principle](https://en.wikipedia.org/wiki/Pareto_principle) (also known as the 80/20 rule), which states that roughly 80% of consequences come from 20% of causes.
+**Pareto** is named after the [Pareto Principle](https://en.wikipedia.org/wiki/Pareto_principle) (also known as the 80/20 rule), which states that roughly 80% of consequences come from 20% of causes. 
 
-In the context of academic success, this means that a significant portion of your grade often comes from just a few key assignments. Pareto helps students identify these high-impact assessments by intelligently analyzing course syllabi, allowing them to prioritize their efforts effectively.
+In the context of academic success, this means that a significant portion of your grade often comes from just a few key assignments. Pareto helps students identify these high-impact assessments by intelligently analyzing course syllabi using AI.
 
 > 🎓 **For Students, By Students** — Focus on what matters most and optimize your semester for maximum results with minimum effort.
 
@@ -118,5 +115,297 @@ Before you begin, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/SoroushRF/Pareto.git](https://github.com/SoroushRF/Pareto.git)
+git clone https://github.com/SoroushRF/Pareto.git
 cd Pareto
+```
+
+### 2. Backend Setup
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create virtual environment (recommended)
+python -m venv venv
+
+# Activate virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 3. Frontend Setup
+
+```bash
+# Navigate to frontend directory (from project root)
+cd frontend
+
+# Install dependencies
+npm install
+```
+
+### 4. Quick Start (Both Servers)
+
+For convenience, you can start both servers simultaneously:
+
+**On macOS/Linux:**
+```bash
+./run_dev.sh
+```
+
+**On Windows:**
+```batch
+run_dev.bat
+```
+
+**Or start them manually:**
+
+Terminal 1 (Backend):
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
+
+Terminal 2 (Frontend):
+```bash
+cd frontend
+npm run dev
+```
+
+---
+
+## ⚙️ Configuration
+
+### Setting Up Your Gemini API Key
+
+1. **Get your API key** from [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+2. **Create a `.env` file** in the `backend` directory:
+
+```bash
+cd backend
+touch .env  # On Windows: type nul > .env
+```
+
+3. **Add your API key** to the `.env` file:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+> ⚠️ **Security Note:** Never commit your `.env` file to version control. It's already included in `.gitignore`.
+
+---
+
+## 📖 Usage
+
+1. **Start the application** using one of the methods described in [Installation](#-installation)
+
+2. **Open your browser** and navigate to:
+   - Frontend: `http://localhost:5173`
+   - Backend API: `http://localhost:8000`
+
+3. **Upload your syllabus**:
+   - Click "Select PDF" or drag and drop your syllabus file
+   - Wait for the AI analysis (typically 10-30 seconds)
+
+4. **Review the results**:
+   - View categorized assignments sorted by importance
+   - Check extracted policies (late work, missed assignments, etc.)
+   - Download raw JSON data for further analysis
+
+5. **Optimize your semester**:
+   - Focus on **mandatory** (red) and **high-weight** assignments first
+   - Take advantage of **drop rules** (green) for strategic planning
+   - Understand **transferable** (blue) assessments for backup options
+
+---
+
+## 📁 Project Structure
+
+```
+Pareto/
+├── 📁 backend/
+│   ├── 📄 main.py              # FastAPI application & AI logic
+│   ├── 📄 requirements.txt     # Python dependencies
+│   └── 📄 .env                 # Environment variables (create this)
+│
+├── 📁 frontend/
+│   ├── 📁 public/              # Static assets
+│   ├── 📁 src/
+│   │   ├── 📁 assets/          # Images and static files
+│   │   ├── 📁 components/
+│   │   │   ├── 📄 UploadZone.jsx       # File upload component
+│   │   │   └── 📄 SyllabusDashboard.jsx # Results display
+│   │   ├── 📄 App.jsx          # Main application component
+│   │   ├── 📄 App.css          # Application styles
+│   │   ├── 📄 main.jsx         # React entry point
+│   │   └── 📄 index.css        # Global styles
+│   ├── 📄 index.html           # HTML template
+│   ├── 📄 package.json         # Node.js dependencies
+│   ├── 📄 vite.config.js       # Vite configuration
+│   ├── 📄 tailwind.config.js   # Tailwind CSS configuration
+│   └── 📄 postcss.config.js    # PostCSS configuration
+│
+├── 📄 run_dev.sh               # Quick start script (Unix)
+├── 📄 run_dev.bat              # Quick start script (Windows)
+├── 📄 .gitignore               # Git ignore rules
+└── 📄 README.md                # This file
+```
+
+---
+
+## 🔌 API Documentation
+
+The backend exposes a RESTful API for syllabus analysis.
+
+### Health Check
+
+```http
+GET /
+```
+
+**Response:**
+```json
+{
+  "status": "Pareto Backend Online"
+}
+```
+
+### Analyze Syllabus
+
+```http
+POST /analyze
+Content-Type: multipart/form-data
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `file` | `file` | PDF file of the course syllabus |
+
+**Response:**
+
+```json
+{
+  "total_points": 100,
+  "assignments": [
+    {
+      "name": "Final Exam",
+      "weight": 40,
+      "type": "strictly_mandatory",
+      "details": {},
+      "evidence": "Final exam is worth 40% of your grade...",
+      "due_date": "Dec 15, 2025"
+    },
+    {
+      "name": "Lab Reports",
+      "weight": 20,
+      "type": "internal_drop",
+      "details": {
+        "drop_count": 2,
+        "total_items": 10
+      },
+      "evidence": "Lowest 2 lab reports will be dropped...",
+      "due_date": null
+    }
+  ],
+  "policies": [
+    "Late Policy: 10% deduction per day",
+    "Missed Work: Weight transfers to final exam"
+  ],
+  "raw_omniscient_json": { /* Full extracted data */ },
+  "analysis_duration_seconds": 15.42
+}
+```
+
+**Assignment Types:**
+
+| Type | Description |
+|------|-------------|
+| `strictly_mandatory` | Must complete to pass |
+| `external_transfer` | Weight can transfer to another assessment |
+| `internal_drop` | Lowest N grades are dropped |
+| `standard_graded` | Regular graded assignment |
+
+---
+
+## 🧠 How It Works
+
+```mermaid
+graph LR
+    A[📄 Upload PDF] --> B[🔄 FastAPI Backend]
+    B --> C[☁️ Google Gemini AI]
+    C --> D[📊 Structured Analysis]
+    D --> E[🎯 Priority Sorting]
+    E --> F[📱 React Dashboard]
+```
+
+1. **Upload**: User uploads a syllabus PDF through the React frontend
+2. **Processing**: FastAPI receives the file and uploads it to Google Gemini
+3. **AI Analysis**: Gemini 2.5 Flash parses the document using a comprehensive prompt template
+4. **Validation**: Pydantic models validate and structure the extracted data
+5. **Optimization**: The backend categorizes and sorts assignments by importance
+6. **Display**: Results are rendered in a beautiful, interactive dashboard
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Fork the repository**
+2. **Create a feature branch**
+   ```bash
+   git checkout -b feature/amazing-feature
+   ```
+3. **Commit your changes**
+   ```bash
+   git commit -m 'Add amazing feature'
+   ```
+4. **Push to the branch**
+   ```bash
+   git push origin feature/amazing-feature
+   ```
+5. **Open a Pull Request**
+
+### Development Guidelines
+
+- Follow existing code style and conventions
+- Write meaningful commit messages
+- Test your changes thoroughly
+- Update documentation as needed
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+## 🙏 Acknowledgments
+
+- [Google Gemini](https://ai.google.dev/) for powerful AI capabilities
+- [FastAPI](https://fastapi.tiangolo.com/) for the excellent Python framework
+- [Vite](https://vitejs.dev/) for lightning-fast frontend tooling
+- [Tailwind CSS](https://tailwindcss.com/) for beautiful styling utilities
+- [Lucide](https://lucide.dev/) for the gorgeous icon set
+- The [Pareto Principle](https://en.wikipedia.org/wiki/Pareto_principle) for the inspiration
+
+---
+
+<div align="center">
+
+**Made with ❤️ for students everywhere**
+
+*Focus on what matters. Achieve more with less.*
+
+[![GitHub stars](https://img.shields.io/github/stars/SoroushRF/Pareto?style=social)](https://github.com/SoroushRF/Pareto)
+
+</div>
