@@ -1,10 +1,10 @@
 import React from 'react';
-import { BookOpen, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { BookOpen, AlertTriangle, CheckCircle, Info, Clock } from 'lucide-react'; // Added Clock
 
 const SyllabusDashboard = ({ data }) => {
     if (!data) return null;
 
-    const { assignments, policies, raw_omniscient_json, analysis_duration_seconds } = data;
+    const { assignments, policies, raw_omniscient_json, analysis_duration } = data;
 
     // Helper to get badge color based on type
     const getStatusBadge = (type) => {
@@ -28,12 +28,27 @@ const SyllabusDashboard = ({ data }) => {
             return;
         }
 
+        // 1. Get Filename logic
+        // Try to get the original filename from the extracted metadata
+        let originalName = raw_omniscient_json.syllabus_metadata?.source_file_name || "syllabus";
+        
+        // Clean it: Remove .pdf extension if present
+        // Regex to remove the last dot and everything after it (e.g. .pdf, .png, .txt)
+originalName = originalName.replace(/\.[^/.]+$/, "");
+        
+        // Get Today's Date in YYYY-MM-DD format
+        const dateStr = new Date().toISOString().split('T')[0];
+        
+        // Create new name: [filename]_analysis_[date].json
+        const downloadName = `${originalName}_analysis_${dateStr}.json`;
+
+        // 2. Create and Trigger Download
         const jsonString = JSON.stringify(raw_omniscient_json, null, 2);
         const blob = new Blob([jsonString], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = "syllabus_analysis_raw.json";
+        link.download = downloadName; // Use the dynamic name with date
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -47,15 +62,20 @@ const SyllabusDashboard = ({ data }) => {
             <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                 <div className="p-6 border-b border-slate-700 flex justify-between items-center">
                     <div>
-                        <h3 className="text-lg font-semibold text-white flex items-center">
-                            <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
-                            Course Breakdown
-                            {analysis_duration_seconds && (
-                                <span className="ml-3 text-xs font-normal text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full border border-slate-600">
-                                    {analysis_duration_seconds}s
+                        <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-semibold text-white flex items-center">
+                                <BookOpen className="w-5 h-5 mr-2 text-blue-400" />
+                                Course Breakdown
+                            </h3>
+                            
+                            {/* New Time Badge */}
+                            {analysis_duration && (
+                                <span className="flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300 border border-slate-600">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    {analysis_duration}s
                                 </span>
                             )}
-                        </h3>
+                        </div>
                         <p className="text-slate-400 text-sm mt-1">
                             Detailed analysis of grading components and policies.
                         </p>
@@ -64,7 +84,7 @@ const SyllabusDashboard = ({ data }) => {
                         onClick={handleDownloadRaw}
                         className="text-sm px-3 py-1.5 rounded-md text-blue-400 hover:text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors"
                     >
-                        Download Raw Analysis (JSON)
+                        Download Raw Analysis
                     </button>
                 </div>
                 <div className="overflow-x-auto">
