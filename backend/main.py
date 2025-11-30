@@ -23,7 +23,8 @@ if not api_key: print("Warning: GEMINI_API_KEY not found.")
 genai.configure(api_key=api_key)
 
 # PRESERVING YOUR CHOICE: Gemini 2.5 Flash
-model = genai.GenerativeModel("gemini-2.5-flash-lite")
+MODEL_NAME = "gemini-2.5-flash-lite"
+model = genai.GenerativeModel(MODEL_NAME)
 
 app = FastAPI()
 app.add_middleware(
@@ -192,7 +193,10 @@ def organize_syllabus_data(raw_data: dict):
 
 @app.get("/")
 def read_root():
-    return {"status": "Pareto Backend Online"}
+    return {
+      "status": "Pareto Backend Online",
+      "model": MODEL_NAME
+    }
 # Ensure Request is imported: 
 # from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 

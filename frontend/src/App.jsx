@@ -3,15 +3,23 @@ import axios from 'axios'
 import UploadZone from './components/UploadZone'
 import SyllabusDashboard from './components/SyllabusDashboard'
 import logo from './assets/logo.png' 
+import { Bot } from 'lucide-react'; // Optional: Import an icon for the AI
 
 function App() {
   const [status, setStatus] = useState('Connecting...')
+  const [modelInfo, setModelInfo] = useState(null)
   const [syllabusData, setSyllabusData] = useState(null)
 
   useEffect(() => {
     axios.get('http://localhost:8000/')
-      .then(res => setStatus(res.data.status))
-      .catch(err => setStatus('Backend Offline'))
+      .then(res => {
+        setStatus(res.data.status)
+        setModelInfo(res.data.model)
+      })
+      .catch(err => {
+        setStatus('Backend Offline')
+        setModelInfo(null)
+      })
   }, [])
 
   // Reset to upload screen
@@ -37,7 +45,13 @@ function App() {
               Pareto
             </span>
           </button>
-
+{/* 3. NEW MODEL BADGE */}
+            {modelInfo && (
+              <div className="hidden md:flex items-center px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs font-medium text-blue-400">
+                <Bot className="w-3 h-3 mr-1.5" />
+                {modelInfo}
+              </div>
+            )}
           {/* Status Indicator */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2 text-xs">
