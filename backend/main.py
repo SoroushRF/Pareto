@@ -23,7 +23,7 @@ if not api_key: print("Warning: GEMINI_API_KEY not found.")
 genai.configure(api_key=api_key)
 
 # PRESERVING YOUR CHOICE: Gemini 2.5 Flash
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
 app = FastAPI()
 app.add_middleware(
