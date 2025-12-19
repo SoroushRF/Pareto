@@ -8,6 +8,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
 from pydantic import BaseModel, Field
 import zipfile
 import io
@@ -22,8 +23,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 if not api_key: print("Warning: GEMINI_API_KEY not found.")
 genai.configure(api_key=api_key)
 
-# PRESERVING YOUR CHOICE: Gemini 2.5 Flash
-MODEL_NAME = "gemini-2.5-flash-lite"
+MODEL_NAME = "gemini-2.5-flash"
 model = genai.GenerativeModel(MODEL_NAME)
 
 app = FastAPI()
@@ -39,114 +39,118 @@ app.add_middleware(
 # 2. PYDANTIC MODELS (Strict Validation for Critical Data)
 # ==========================================
 
-class GradingMechanic(BaseModel):
-    # FIX: Changed 'bool' to 'Optional[bool]' to handle nulls
-    is_mandatory_submission: Optional[bool] = False
-    drop_lowest_n: Optional[int] = 0
-    grading_method: Optional[str] = None
+# ==========================================
+# 2. UPDATED PYDANTIC MODELS (Lean v2.0)
+# ==========================================
 
-class WeightTransfer(BaseModel):
-    trigger: Optional[str] = None
-    condition: Optional[str] = None
-    target_assessment_id: Optional[str] = None
+class AssessmentAttributes(BaseModel):
+    is_bonus: bool = False
+    is_mandatory: bool = False
+    replacement_logic: Optional[str] = None
 
-# --- PASTE THIS BLOCK TO FIX THE ATTRIBUTE ERROR ---
+class GradingRules(BaseModel):
+    # FIX: Optional[int] handles cases where Gemini sends "null" instead of 0
+    drop_lowest_n: Optional[int] = 0 
+    min_pass_threshold: Optional[float] = None
 
-class DateInfo(BaseModel):
+class TransferPolicy(BaseModel):
+    description: Optional[str] = None
+    target_id: Optional[str] = None
+
+class AssessmentDate(BaseModel):
     due_date: Optional[str] = None
-    # FIX: Changed 'bool' to 'Optional[bool]' to handle nulls safely
-    is_scheduled_event: Optional[bool] = False
-    location_override: Optional[str] = None
+    is_scheduled_event: bool = False
 
 class AssessmentComponent(BaseModel):
     id: Optional[str] = None
     name: str = "Unknown Assignment"
-    category: Optional[str] = None
     
-    # FIX 1: Allow Strings (e.g., "Variable") instead of crashing
-    weight_percentage: Optional[Union[float, str]] = 0.0
+    # Flexible Weight
+    weight_percentage: Union[float, str, int] = 0
+    quantity: int = 1
     
-    # FIX 2: Allow Strings (e.g., "See eClass") 
-    quantity: Optional[Union[int, str]] = 1
+    # CRITICAL FIX: All nested models must be Optional to handle JSON "null"
+    attributes: Optional[AssessmentAttributes] = None
+    grading_rules: Optional[GradingRules] = None
+    transfer_policy: Optional[TransferPolicy] = None
+    dates: Optional[AssessmentDate] = None
     
-    # FIX 3: Explicitly allow None for dates
-    dates: Optional[DateInfo] = Field(default_factory=DateInfo)
-    
-    grading_mechanics: GradingMechanic = Field(default_factory=GradingMechanic)
-    weight_transfer_logic: List[WeightTransfer] = []
     evidence: Optional[str] = None
 
 class AssessmentStructure(BaseModel):
     components: List[AssessmentComponent] = []
 
 class GlobalPolicies(BaseModel):
-    lateness_policy: Optional[Dict[str, Any]] = None
-    missed_work_policy: Optional[Dict[str, Any]] = None
-    academic_integrity: Optional[Dict[str, Any]] = None
+    late_penalty: Optional[str] = "See syllabus"
+    missed_work: Optional[str] = "See syllabus"
 
 class OmniscientSyllabus(BaseModel):
-    """
-    Validates the critical 'Pareto' data.
-    ALLOWS extra fields (the 80% junk) to pass through without crashing.
-    """
-    assessment_structure: AssessmentStructure = Field(default_factory=AssessmentStructure)
-    global_policies: GlobalPolicies = Field(default_factory=GlobalPolicies)
-    
-    # CRITICAL: This allows 'materials_and_costs', 'logistics', etc. to pass through safely.
+    syllabus_metadata: Dict[str, Any] = {}
+    course_identity: Dict[str, Any] = {}
+    assessment_structure: Optional[AssessmentStructure] = Field(default_factory=AssessmentStructure)
+    global_policies: Optional[GlobalPolicies] = Field(default_factory=GlobalPolicies)
     model_config = {"extra": "allow"}
-
 # ==========================================
 # 3. THE OMNISCIENT SYSTEM PROMPT (Verbatim 5.1 Template)
 # ==========================================
-
-
 # ==========================================
-# 4. LOGIC ADAPTER
+# 3. LOGIC ADAPTER (Updated for v2.0 - NULL SAFE)
 # ==========================================
 
 def organize_syllabus_data(raw_data: dict):
-    print("DEBUG: Starting organize_syllabus_data...")
-    
     # 1. Validation
     try:
         syllabus = OmniscientSyllabus(**raw_data)
-        print("DEBUG: Pydantic Validation PASSED (Strict).")
     except Exception as e:
-        print(f"DEBUG: Validation Warning (Soft Fail): {e}")
-        syllabus = OmniscientSyllabus.construct(**raw_data)
+        print(f"Validation Error: {e}")
+        # If validation fails, return an error to UI instead of crashing
+        return {
+            "error": "Data Validation Failed", 
+            "details": str(e),
+            "raw_omniscient_json": raw_data
+        }
 
-    # 2. Map to Pareto UI
     pareto_assignments = []
     
-    # Safety check for components
     components = []
-    if hasattr(syllabus, 'assessment_structure') and syllabus.assessment_structure:
+    # Safety check for missing structure
+    if syllabus.assessment_structure and syllabus.assessment_structure.components:
          components = syllabus.assessment_structure.components
 
-    print(f"DEBUG: Processing {len(components)} components...")
-
     for comp in components:
+        # --- NULL SAFETY GUARDS ---
+        # If Gemini sent 'null', we create empty default objects here
+        attrs = comp.attributes or AssessmentAttributes()
+        rules = comp.grading_rules or GradingRules()
+        transfer = comp.transfer_policy or TransferPolicy()
+        dates = comp.dates or AssessmentDate()
+        # --------------------------
+
         category_type = "standard_graded"
         details = {}
         
-        # Logic: Drop Rules
-        if comp.grading_mechanics.drop_lowest_n and comp.grading_mechanics.drop_lowest_n > 0:
+        # 1. Bonus Check
+        if attrs.is_bonus:
+            category_type = "standard_graded"
+            details["is_bonus"] = True
+        
+        # 2. Drop Logic (Handle None safely)
+        elif (rules.drop_lowest_n or 0) > 0:
             category_type = "internal_drop"
-            details = {"drop_count": comp.grading_mechanics.drop_lowest_n, "total_items": comp.quantity}
-        # Logic: Transfers
-        elif len(comp.weight_transfer_logic) > 0:
+            details = {"drop_count": rules.drop_lowest_n}
+            
+        # 3. Transfer Logic
+        elif transfer.target_id:
             category_type = "external_transfer"
-            details = {"transfer_target": comp.weight_transfer_logic[0].target_assessment_id}
-        # Logic: Mandatory
-        elif comp.grading_mechanics.is_mandatory_submission:
+            details = {"transfer_target": transfer.target_id}
+            
+        # 4. Mandatory Check
+        elif attrs.is_mandatory:
             category_type = "strictly_mandatory"
             
-        # --- THIS IS THE MISSING BLOCK YOU NEED ---
-        due_date = None
-        # Check if the nested 'dates' object exists
-        if comp.dates and comp.dates.due_date:
-            due_date = comp.dates.due_date
-        # -----------------------------------------
+        # 5. Variable Weight Check
+        if isinstance(comp.weight_percentage, str):
+            pass
 
         pareto_assignments.append({
             "name": comp.name,
@@ -154,37 +158,27 @@ def organize_syllabus_data(raw_data: dict):
             "type": category_type,
             "details": details,
             "evidence": comp.evidence or "No evidence extracted",
-            "due_date": due_date  # <--- This failed because the block above was missing
+            "due_date": dates.due_date,
+            "is_bonus": attrs.is_bonus, 
+            "replacement_logic": attrs.replacement_logic 
         })
 
-    # Sort
-    # Sort
-    priority_map = {"strictly_mandatory": 3, "standard_graded": 2, "external_transfer": 1, "internal_drop": 0}
-    
-    # FIX: Helper function to safely extract a numeric weight for sorting
-    def get_safe_weight(item):
+    # Sort Logic
+    def get_sort_weight(item):
         w = item.get('weight', 0)
-        if isinstance(w, (int, float)):
-            return w
-        return 0  # If it's a string like "Variable", treat it as 0 for sorting
+        return w if isinstance(w, (int, float)) else 0
 
     pareto_assignments.sort(key=lambda x: (
-        priority_map.get(x['type'], 0), 
-        get_safe_weight(x)
+        1 if x['type'] == 'strictly_mandatory' else 0,
+        get_sort_weight(x)
     ), reverse=True)
-    # Policies
-    policies = []
-    gp = syllabus.global_policies
-    if gp.lateness_policy and isinstance(gp.lateness_policy, dict):
-        policies.append(f"Late Policy: {gp.lateness_policy.get('penalty_per_day', 'See syllabus')}")
-    if gp.missed_work_policy and isinstance(gp.missed_work_policy, dict):
-        policies.append(f"Missed Work: {gp.missed_work_policy.get('general_procedure', 'See syllabus')}")
 
-    print("DEBUG: Organization complete. Returning data.")
     return {
-        "total_points": 100,
         "assignments": pareto_assignments,
-        "policies": policies,
+        "policies": [
+            f"Lateness: {syllabus.global_policies.late_penalty if syllabus.global_policies else 'See Syllabus'}",
+            f"Missed Work: {syllabus.global_policies.missed_work if syllabus.global_policies else 'See Syllabus'}"
+        ],
         "raw_omniscient_json": raw_data
     }
 # ==========================================
@@ -246,107 +240,71 @@ def process_docx(file_path):
     return content_parts
 
 @app.post("/analyze")
-async def analyze_syllabus(request: Request, file: UploadFile = File(...)): # <--- ADDED request: Request
-    print(f"\n--- NEW REQUEST: {file.filename} ---")
+async def analyze_syllabus(request: Request, file: UploadFile = File(...)):
     start_time = time.time()
-    temp_filename = f"temp_{file.filename}"
+    # Use unique filename to prevent overwrites
+    temp_filename = f"temp_{int(time.time())}_{file.filename}" 
     
     try:
-        # 1. Save File
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        print(f"DEBUG: File saved locally ({time.time() - start_time:.2f}s)")
-
-        # Quick check before heavy upload
-        if await request.is_disconnected():
-            print("⚠️ Client disconnected before upload. Aborting.")
-            os.remove(temp_filename)
-            return
-
-        print(f"DEBUG: Uploading {temp_filename} to Gemini...")
-
-       # 2. Prepare Content (Switch between DOCX and Standard)
         gemini_content = [system_prompt]
 
         if file.filename.lower().endswith(".docx"):
-            print("DEBUG: Detected DOCX. Running Deep Extraction...")
-            # This calls the helper function (process_docx) you added in Phase 2
             docx_parts = process_docx(temp_filename)
-            if not docx_parts:
-                raise Exception("Failed to extract content (text or images) from DOCX.")
             gemini_content.extend(docx_parts)
         else:
-            # Standard Path (PDF, Images, Text)
-            print(f"DEBUG: Uploading {temp_filename} to Gemini...")
             uploaded_file = genai.upload_file(temp_filename)
             gemini_content.append(uploaded_file)
 
-        print(f"DEBUG: Prep complete ({time.time() - start_time:.2f}s). Starting Generation...")
-        
-        # 3. Generate with Streaming
-        # We pass 'gemini_content' (which now holds Prompt + File/Parts)
+        # --- THE FIX IS HERE: FORCE JSON MODE ---
         response_stream = await model.generate_content_async(
             gemini_content, 
-            stream=True
+            stream=True,
+            generation_config=GenerationConfig(
+                response_mime_type="application/json"
+            )
         )
-        # 3. Build Response Chunk by Chunk + MONITOR CONNECTION
-        full_text = ""
-# ... inside analyze_syllabus ...
-        
-        print(f"DEBUG: Streaming response...")
-        
-        async for chunk in response_stream:
-            # 1. Pulse Check (Cancellation)
-            if await request.is_disconnected():
-                print(f"🛑 OPERATION ABORTED: User disconnected at {time.time() - start_time:.2f}s")
-                if os.path.exists(temp_filename):
-                    os.remove(temp_filename)
-                return 
+        # ----------------------------------------
 
-            # 2. Safe Text Extraction (The Fix)
-            try:
-                # Only add text if the chunk actually contains text parts
-                if chunk.parts:
-                    full_text += chunk.text
-            except Exception as chunk_error:
-                # If a chunk is empty/metadata-only, ignore it and keep going
-                continue
+        full_text = ""
+        async for chunk in response_stream:
+            if await request.is_disconnected():
+                os.remove(temp_filename)
+                return 
+            if chunk.parts:
+                full_text += chunk.text
         
-        print(f"DEBUG: Generation complete ({time.time() - start_time:.2f}s)")
         os.remove(temp_filename)
         
-        # 4. Parse Response (Standard logic continues...)
-        # Only runs if user stayed connected the whole time
         text = full_text
-        print("DEBUG: Raw text received (First 100 chars):", text[:100])
-        
+        # Cleaner logic: JSON Mode often removes backticks, so we need to be safe
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0]
         elif "```" in text:
             text = text.split("```")[1].split("```")[0]
+        
+        # Strip whitespace to prevent empty line errors
+        text = text.strip()
             
-        print("DEBUG: JSON parsed successfully. Running Logic Adapter...")
         raw_data = json.loads(text)
         
+        # Add metadata for frontend fallback
         if "syllabus_metadata" not in raw_data:
             raw_data["syllabus_metadata"] = {}
-            
         raw_data["syllabus_metadata"]["source_file_name"] = file.filename
 
-        # Calculate final duration
-        elapsed = round(time.time() - start_time, 2)
-        
-        # Get organized data
         result = organize_syllabus_data(raw_data)
-        
-        # Inject duration
-        result["analysis_duration"] = elapsed
+        result["analysis_duration"] = round(time.time() - start_time, 2)
         
         return result
 
     except Exception as e:
         print(f"CRITICAL ERROR: {str(e)}")
+        # Print the failed text for debugging if it's a JSON error
+        if 'text' in locals():
+            print(f"FAILED JSON START: {text[:100]}...")
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         return {"error": str(e)}
